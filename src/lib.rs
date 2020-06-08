@@ -22,7 +22,7 @@ enum UsbCommand {
     SetRadioArc = 0x06,
     AckEnable = 0x10,
     SetContCarrier = 0x20,
-    ScanChannels = 0x21,
+    // ScanChannels = 0x21,
     LaunchBootloader = 0xff,
 }
 
@@ -104,19 +104,17 @@ impl Crazyradio {
     }
 
     pub fn scan_channels(&mut self, start: Channel, stop: Channel, packet: &[u8]) -> Result<Vec<Channel>, Error> {
-        // Start the scann
-        self.device_handle.write_control(0x40, UsbCommand::ScanChannels as u8, start.into(), stop.into(), packet, Duration::from_secs(1))?;
-        // Get the result
-        let mut raw_result = [0u8, 64];
-        let raw_length = self.device_handle.read_control(0xC0, UsbCommand::ScanChannels as u8, 0, 0, &mut raw_result, Duration::from_secs(1))?;
-        dbg!(raw_length);
-        if raw_length > 63 {
-            // On some host, an empty answer results in a 64 bytes packet
-            // Filter all 64 bytes answers as empty
-            Ok(vec![])
-        } else {
-            Ok(raw_result[..raw_length].into_iter().map(|c| Channel::new(*c).unwrap()).collect())
+        let mut ack_data = [0u8; 32];
+        let mut result: Vec<Channel> = vec![];
+        for ch in start.0..stop.0+1 {
+            let channel = Channel::new(ch).unwrap();
+            self.set_channel(channel)?;
+            let n_received = self.send_packet(packet, &mut ack_data)?;
+            if n_received > 0 {
+                result.push(channel);
+            }
         }
+        Ok(result)
     }
 
     // Launch bootloader consumes the radio since it is not usable after that (it is in bootlaoder mode ...)
@@ -167,6 +165,10 @@ impl Channel {
 
 impl Into<u16> for Channel {
     fn into(self) -> u16 { self.0 as u16 }
+}
+
+impl Into<u8> for Channel {
+    fn into(self) -> u8 { self.0 }
 }
 
 pub enum Datarate {
