@@ -50,7 +50,7 @@ impl Crazyradio {
     }
 
     pub fn set_channel(&mut self, channel: Channel) -> Result<(), Error> {
-        self.device_handle.write_control(0x40, UsbCommand::SetRadioChannel as u8, channel.into(), 0, &[], Duration::from_secs(1))?;
+        self.device_handle.write_control(0x40, UsbCommand::SetRadioChannel as u8, channel.0 as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
@@ -161,14 +161,6 @@ impl Channel {
             None
         }
     }
-}
-
-impl Into<u16> for Channel {
-    fn into(self) -> u16 { self.0 as u16 }
-}
-
-impl Into<u8> for Channel {
-    fn into(self) -> u8 { self.0 }
 }
 
 pub enum Datarate {
