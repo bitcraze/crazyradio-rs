@@ -26,13 +26,39 @@ enum UsbCommand {
     LaunchBootloader = 0xff,
 }
 
+/// Represents a Crazyradio
+/// 
+/// Holds the USB connection to a Crazyradio dongle.
+/// The connection is closed when this object goes out of scope.Crazyradio
+/// 
+/// Usage example:
+/// ```no_run
+/// use crazyradio::{Crazyradio, Error, Channel};
+/// 
+/// fn main() -> Result<(), Error> {
+///     let mut cr = Crazyradio::open_first()?;   // Open the first detected dongle
+/// 
+///     // Set the radio channel
+///     cr.set_channel(Channel::from_number(42).unwrap());
+/// 
+///     // Send a `null` packet
+///     let mut ack_data = [0u8; 32];
+///     let ack_length = cr.send_packet(&[0xff], &mut ack_data)?;
+/// 
+///     Ok(())
+/// }
+/// ```
 pub struct Crazyradio {
-    pub device: rusb::Device<rusb::GlobalContext>,
-    pub device_handle: rusb::DeviceHandle<rusb::GlobalContext>,
+    device: rusb::Device<rusb::GlobalContext>,
+    device_handle: rusb::DeviceHandle<rusb::GlobalContext>,
 }
 
 impl Crazyradio {
-    pub fn new() -> Result<Self, Error> {
+
+    /// Open the first Crazyradio detected and returns a Crazyradio object.println!
+    /// 
+    /// The dongle is reset to boot values before being returned
+    pub fn open_first() -> Result<Self, Error> {
         if let Some(device) = find_crazyradio() {
             let device_handle = device.open()?;
 
@@ -45,30 +71,38 @@ impl Crazyradio {
         }
     }
 
+    /// Reset dongle parameters to boot values.
+    /// 
+    /// This function is called by Crazyradio::new.
     pub fn reset(&mut self) {
         todo!();
     }
 
+    /// Set the radio channel.
     pub fn set_channel(&mut self, channel: Channel) -> Result<(), Error> {
         self.device_handle.write_control(0x40, UsbCommand::SetRadioChannel as u8, channel.0 as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
+    /// Set the datarate.
     pub fn set_datarate(&mut self, datarate: Datarate) -> Result<(), Error> {
         self.device_handle.write_control(0x40, UsbCommand::SetDataRate as u8, datarate as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
+    /// Set the radio address.
     pub fn set_address(&mut self, address: &[u8; 5]) -> Result<(), Error> {
         self.device_handle.write_control(0x40, UsbCommand::SetRadioAddress as u8, 0, 0, address, Duration::from_secs(1))?;
         Ok(())
     }
 
+    /// Set the transmit power.
     pub fn set_power(&mut self, power: Power) -> Result<(), Error> {
         self.device_handle.write_control(0x40, UsbCommand::SetRadioPower as u8, power as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
+    /// Set time to wait for the ack packet.
     pub fn set_ard_time(&mut self, delay: Duration) -> Result<(), Error> {
         if delay <= Duration::from_millis(4000) {
             // Set to step above or equal to `delay`
@@ -80,6 +114,7 @@ impl Crazyradio {
         }
     }
 
+    /// Set the number of bytes to wait for when waiting for the ack packet.
     pub fn set_ard_bytes(&mut self, nbytes: u8) -> Result<(), Error> {
         if nbytes <= 32 {
             self.device_handle.write_control(0x40, UsbCommand::SetRadioArd as u8, 0x80 | nbytes as u16, 0, &[], Duration::from_secs(1))?;
@@ -89,6 +124,7 @@ impl Crazyradio {
         }
     }
 
+    /// Set the number of time the radio will retry to send the packet if an ack packet is not received in time.
     pub fn set_arc(&mut self, arc: usize) -> Result<(), Error> {
         if arc <= 15 {
             self.device_handle.write_control(0x40, UsbCommand::SetRadioArc as u8, arc as u16, 0, &[], Duration::from_secs(1))?;
@@ -98,16 +134,22 @@ impl Crazyradio {
         }
     }
 
+    /// Set if the radio waits for an ack packet.
+    /// 
+    /// Should be disabled when sending broadcast packets.
     pub fn set_ack_enable(&mut self, ack_enable: bool) -> Result<(), Error> {
         self.device_handle.write_control(0x40, UsbCommand::AckEnable as u8, ack_enable as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
+    /// Sends a packet to a range of channel and returns a list of channel that acked
+    /// 
+    /// Used to activally scann for receives on channels. This function sends
     pub fn scan_channels(&mut self, start: Channel, stop: Channel, packet: &[u8]) -> Result<Vec<Channel>, Error> {
         let mut ack_data = [0u8; 32];
         let mut result: Vec<Channel> = vec![];
         for ch in start.0..stop.0+1 {
-            let channel = Channel::new(ch).unwrap();
+            let channel = Channel::from_number(ch).unwrap();
             self.set_channel(channel)?;
             let n_received = self.send_packet(packet, &mut ack_data)?;
             if n_received > 0 {
@@ -117,17 +159,24 @@ impl Crazyradio {
         Ok(result)
     }
 
-    // Launch bootloader consumes the radio since it is not usable after that (it is in bootlaoder mode ...)
+    /// Launch the bootloader.
+    /// 
+    /// Consumes the Crazyradio since it is not usable after that (it is in bootlaoder mode ...).
     pub fn launch_bootloader(self) -> Result<(), Error> {
         self.device_handle.write_control(0x40, UsbCommand::LaunchBootloader as u8, 0, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
+    /// Set the radio in continious carrier mode.
+    /// 
+    /// In continious carrier mode, the radio will transmit a continious sine
+    /// wave at the setup channel frequency using the setup transmit power.
     pub fn set_cont_carrier(&mut self, enable: bool) -> Result<(), Error> {
         self.device_handle.write_control(0x40, UsbCommand::SetContCarrier as u8, enable as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
+    /// Send a data packet and receive an ack packet.
     pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8; 32]) -> Result<usize, Error> {
         self.device_handle.write_bulk(0x01, data, Duration::from_secs(1))?;
         let mut received_data = [0u8; 33];
@@ -154,11 +203,11 @@ impl From<rusb::Error> for Error {
 pub struct Channel(u8);
 
 impl Channel {
-    pub fn new(channel: u8) -> Option<Self> {
+    pub fn from_number(channel: u8) -> Result<Self, Error> {
         if channel < 126 {
-            Some(Channel(channel))
+            Ok(Channel(channel))
         } else {
-            None
+            Err(Error::InvalidArgument)
         }
     }
 }

@@ -2,13 +2,13 @@ use crazyradio::{Crazyradio, Channel, Datarate};
 use std::str;
 
 fn main() -> Result<(), crazyradio::Error>{
-    let mut cr = Crazyradio::new()?;
+    let mut cr = Crazyradio::open_first()?;
 
     cr.set_datarate(Datarate::Dr2M)?;
 
     println!("Scanning for Crazyflies ...");
-    let channels = cr.scan_channels(Channel::new(0).unwrap(),
-                                    Channel::new(125).unwrap(),
+    let channels = cr.scan_channels(Channel::from_number(0).unwrap(),
+                                    Channel::from_number(125).unwrap(),
                                     &[0xff])?;
     if channels.len() > 0 {
         println!("{} Crazyflies found, connecting {:?}.", channels.len(), channels[0]);
