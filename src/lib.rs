@@ -2,15 +2,57 @@
 use rusb;
 use core::time::Duration;
 
-fn find_crazyradio() -> Option<rusb::Device<rusb::GlobalContext>> {
-    for device in rusb::devices().unwrap().iter() {
-        let device_desc = device.device_descriptor().unwrap();
+fn find_crazyradio(nth: Option<usize>, serial: Option<&str>) -> Result<rusb::Device<rusb::GlobalContext>, Error> {
+    let mut n = 0;
+
+    for device in rusb::devices()?.iter() {
+        let device_desc = device.device_descriptor()?;
 
         if device_desc.vendor_id() == 0x1915 && device_desc.product_id() == 0x7777 {
-            return Some(device);
+            let handle = device.open()?;
+
+            if (nth == None || nth == Some(n)) && (serial == None || serial == Some(&get_serial(&device_desc, &handle)?)) {
+                return Ok(device);
+            }
+            n += 1;
         }
     }
-    return None;
+    return Err(Error::NotFound);
+}
+
+fn get_serial<T: rusb::UsbContext>(device_desc: &rusb::DeviceDescriptor, handle: &rusb::DeviceHandle<T>) -> Result<String, Error> {
+    let languages = handle.read_languages(Duration::from_secs(1))?;
+
+    if languages.len() > 0 {
+        let serial = handle.read_serial_number_string(languages[0],
+                                                      &device_desc,
+                                                      Duration::from_secs(1))?;
+        Ok(serial)
+    } else {
+        Err(Error::NotFound)
+    }
+}
+
+fn list_crazyradio_serials() -> Result<Vec<String>, Error> {
+    let mut serials = vec![];
+
+    for device in rusb::devices()?.iter() {
+        let device_desc = device.device_descriptor()?;
+
+        if device_desc.vendor_id() == 0x1915 && device_desc.product_id() == 0x7777 {
+            let handle: rusb::DeviceHandle<rusb::GlobalContext> = device.open()?;
+
+            let languages = handle.read_languages(Duration::from_secs(1))?;
+
+            if languages.len() > 0 {
+                let serial = handle.read_serial_number_string(languages[0],
+                                                              &device_desc,
+                                                              Duration::from_secs(1))?;
+                serials.push(serial);
+            }
+        }
+    }
+    Ok(serials)
 }
 
 enum UsbCommand {
@@ -49,33 +91,87 @@ enum UsbCommand {
 /// }
 /// ```
 pub struct Crazyradio {
-    device: rusb::Device<rusb::GlobalContext>,
+    device_desciptor: rusb::DeviceDescriptor,
     device_handle: rusb::DeviceHandle<rusb::GlobalContext>,
 }
 
 impl Crazyradio {
 
-    /// Open the first Crazyradio detected and returns a Crazyradio object.println!
+    /// Open the first Crazyradio detected and returns a Crazyradio object.
     /// 
     /// The dongle is reset to boot values before being returned
     pub fn open_first() -> Result<Self, Error> {
-        if let Some(device) = find_crazyradio() {
+        Crazyradio::open_nth(0)
+    }
+
+    /// Open the nth Crazyradio detected and returns a Crazyradio object.
+    /// 
+    /// Radios are ordered appearance in the USB device list. This order is
+    /// platform-specific.
+    /// 
+    /// The dongle is reset to boot values before being returned
+    pub fn open_nth(nth: usize) -> Result<Self, Error> {
+        if let Ok(device) = find_crazyradio(Some(nth), None) {
+
+            let device_desciptor = device.device_descriptor()?;
             let device_handle = device.open()?;
 
-            Ok(Crazyradio {
-                device,
+            let mut cr = Crazyradio {
+                device_desciptor,
                 device_handle,
-            })
+            };
+
+            cr.reset();
+
+            Ok(cr)
         } else {
             Err(Error::NotFound)
         }
     }
 
+    /// Open a Crazyradio by specifying its serial number
+    /// 
+    /// Example:
+    /// ```no_run
+    /// use crazyradio::Crazyradio;
+    /// # fn main() -> Result<(), crazyradio::Error> {
+    /// let mut cr = Crazyradio::open_by_serial("FD61E54B7A")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn open_by_serial(serial: &str) -> Result<Self, Error> {
+        let device = find_crazyradio(None, Some(serial))?;
+
+        let device_desciptor = device.device_descriptor()?;
+        let device_handle = device.open()?;
+
+        let mut cr = Crazyradio {
+            device_desciptor,
+            device_handle,
+        };
+
+        cr.reset();
+
+        Ok(cr)
+    }
+
+    /// Return an ordered list of serial numbers of connected Crazyradios
+    /// 
+    /// The order of the list is the same as accepted by the open_nth() function.
+    pub fn list_serials() -> Result<Vec<String>, Error> {
+        list_crazyradio_serials()
+    }
+
+    /// Return the serial number of this radio
+    pub fn serial(&self) -> Result<String, Error> {
+        get_serial(&self.device_desciptor, &self.device_handle)
+    }
+
     /// Reset dongle parameters to boot values.
     /// 
-    /// This function is called by Crazyradio::new.
+    /// This function is called by Crazyradio::open_*.
     pub fn reset(&mut self) {
-        todo!();
+        // todo!();
     }
 
     /// Set the radio channel.
