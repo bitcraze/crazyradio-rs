@@ -2,7 +2,9 @@
 use rusb;
 use core::time::Duration;
 
-fn find_crazyradio(nth: Option<usize>, serial: Option<&str>) -> Result<rusb::Device<rusb::GlobalContext>, Error> {
+type Result<T> = std::result::Result<T, Error>;
+
+fn find_crazyradio(nth: Option<usize>, serial: Option<&str>) -> Result<rusb::Device<rusb::GlobalContext>> {
     let mut n = 0;
 
     for device in rusb::devices()?.iter() {
@@ -20,7 +22,7 @@ fn find_crazyradio(nth: Option<usize>, serial: Option<&str>) -> Result<rusb::Dev
     return Err(Error::NotFound);
 }
 
-fn get_serial<T: rusb::UsbContext>(device_desc: &rusb::DeviceDescriptor, handle: &rusb::DeviceHandle<T>) -> Result<String, Error> {
+fn get_serial<T: rusb::UsbContext>(device_desc: &rusb::DeviceDescriptor, handle: &rusb::DeviceHandle<T>) -> Result<String> {
     let languages = handle.read_languages(Duration::from_secs(1))?;
 
     if languages.len() > 0 {
@@ -33,7 +35,7 @@ fn get_serial<T: rusb::UsbContext>(device_desc: &rusb::DeviceDescriptor, handle:
     }
 }
 
-fn list_crazyradio_serials() -> Result<Vec<String>, Error> {
+fn list_crazyradio_serials() -> Result<Vec<String>> {
     let mut serials = vec![];
 
     for device in rusb::devices()?.iter() {
@@ -100,7 +102,7 @@ impl Crazyradio {
     /// Open the first Crazyradio detected and returns a Crazyradio object.
     /// 
     /// The dongle is reset to boot values before being returned
-    pub fn open_first() -> Result<Self, Error> {
+    pub fn open_first() -> Result<Self> {
         Crazyradio::open_nth(0)
     }
 
@@ -110,23 +112,8 @@ impl Crazyradio {
     /// platform-specific.
     /// 
     /// The dongle is reset to boot values before being returned
-    pub fn open_nth(nth: usize) -> Result<Self, Error> {
-        if let Ok(device) = find_crazyradio(Some(nth), None) {
-
-            let device_desciptor = device.device_descriptor()?;
-            let device_handle = device.open()?;
-
-            let mut cr = Crazyradio {
-                device_desciptor,
-                device_handle,
-            };
-
-            cr.reset();
-
-            Ok(cr)
-        } else {
-            Err(Error::NotFound)
-        }
+    pub fn open_nth(nth: usize) -> Result<Self> {
+        Self::open_generic(Some(nth), None)
     }
 
     /// Open a Crazyradio by specifying its serial number
@@ -139,18 +126,30 @@ impl Crazyradio {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn open_by_serial(serial: &str) -> Result<Self, Error> {
-        let device = find_crazyradio(None, Some(serial))?;
+    pub fn open_by_serial(serial: &str) -> Result<Self> {
+        Self::open_generic(None, Some(serial))
+    }
+
+    // Generic version of the open function, called by the other open_* functions
+    fn open_generic(nth: Option<usize>, serial: Option<&str>) -> Result<Self> {
+        let device = find_crazyradio(nth, serial)?;
 
         let device_desciptor = device.device_descriptor()?;
-        let device_handle = device.open()?;
+        let mut device_handle = device.open()?;
+
+        device_handle.claim_interface(0)?;
+
+        let version = device_desciptor.device_version();
+        if version.major() != 0 && version.minor() < 5 {
+            return Err(Error::DongleVersionNotSupported);
+        }
 
         let mut cr = Crazyradio {
             device_desciptor,
             device_handle,
         };
 
-        cr.reset();
+        cr.reset()?;
 
         Ok(cr)
     }
@@ -158,48 +157,57 @@ impl Crazyradio {
     /// Return an ordered list of serial numbers of connected Crazyradios
     /// 
     /// The order of the list is the same as accepted by the open_nth() function.
-    pub fn list_serials() -> Result<Vec<String>, Error> {
+    pub fn list_serials() -> Result<Vec<String>> {
         list_crazyradio_serials()
     }
 
     /// Return the serial number of this radio
-    pub fn serial(&self) -> Result<String, Error> {
+    pub fn serial(&self) -> Result<String> {
         get_serial(&self.device_desciptor, &self.device_handle)
     }
 
     /// Reset dongle parameters to boot values.
     /// 
     /// This function is called by Crazyradio::open_*.
-    pub fn reset(&mut self) {
-        // todo!();
+    pub fn reset(&mut self) -> Result<()> {
+        self.set_datarate(Datarate::Dr2M)?;
+        self.set_channel(Channel::from_number(2).unwrap())?;
+        self.set_cont_carrier(false)?;
+        self.set_address(&[0xe7, 0xe7, 0xe7, 0xe7, 0xe7])?;
+        self.set_power(Power::P0dBm)?;
+        self.set_arc(3)?;
+        self.set_ard_bytes(32)?;
+        self.set_ack_enable(true)?;
+
+        Ok(())
     }
 
     /// Set the radio channel.
-    pub fn set_channel(&mut self, channel: Channel) -> Result<(), Error> {
+    pub fn set_channel(&mut self, channel: Channel) -> Result<()> {
         self.device_handle.write_control(0x40, UsbCommand::SetRadioChannel as u8, channel.0 as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
     /// Set the datarate.
-    pub fn set_datarate(&mut self, datarate: Datarate) -> Result<(), Error> {
+    pub fn set_datarate(&mut self, datarate: Datarate) -> Result<()> {
         self.device_handle.write_control(0x40, UsbCommand::SetDataRate as u8, datarate as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
     /// Set the radio address.
-    pub fn set_address(&mut self, address: &[u8; 5]) -> Result<(), Error> {
+    pub fn set_address(&mut self, address: &[u8; 5]) -> Result<()> {
         self.device_handle.write_control(0x40, UsbCommand::SetRadioAddress as u8, 0, 0, address, Duration::from_secs(1))?;
         Ok(())
     }
 
     /// Set the transmit power.
-    pub fn set_power(&mut self, power: Power) -> Result<(), Error> {
+    pub fn set_power(&mut self, power: Power) -> Result<()> {
         self.device_handle.write_control(0x40, UsbCommand::SetRadioPower as u8, power as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
     /// Set time to wait for the ack packet.
-    pub fn set_ard_time(&mut self, delay: Duration) -> Result<(), Error> {
+    pub fn set_ard_time(&mut self, delay: Duration) -> Result<()> {
         if delay <= Duration::from_millis(4000) {
             // Set to step above or equal to `delay`
             let ard = (delay.as_millis() as u16 /250) - 1;
@@ -211,7 +219,7 @@ impl Crazyradio {
     }
 
     /// Set the number of bytes to wait for when waiting for the ack packet.
-    pub fn set_ard_bytes(&mut self, nbytes: u8) -> Result<(), Error> {
+    pub fn set_ard_bytes(&mut self, nbytes: u8) -> Result<()> {
         if nbytes <= 32 {
             self.device_handle.write_control(0x40, UsbCommand::SetRadioArd as u8, 0x80 | nbytes as u16, 0, &[], Duration::from_secs(1))?;
             Ok(())
@@ -221,7 +229,7 @@ impl Crazyradio {
     }
 
     /// Set the number of time the radio will retry to send the packet if an ack packet is not received in time.
-    pub fn set_arc(&mut self, arc: usize) -> Result<(), Error> {
+    pub fn set_arc(&mut self, arc: usize) -> Result<()> {
         if arc <= 15 {
             self.device_handle.write_control(0x40, UsbCommand::SetRadioArc as u8, arc as u16, 0, &[], Duration::from_secs(1))?;
             Ok(())
@@ -233,7 +241,7 @@ impl Crazyradio {
     /// Set if the radio waits for an ack packet.
     /// 
     /// Should be disabled when sending broadcast packets.
-    pub fn set_ack_enable(&mut self, ack_enable: bool) -> Result<(), Error> {
+    pub fn set_ack_enable(&mut self, ack_enable: bool) -> Result<()> {
         self.device_handle.write_control(0x40, UsbCommand::AckEnable as u8, ack_enable as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
@@ -241,7 +249,7 @@ impl Crazyradio {
     /// Sends a packet to a range of channel and returns a list of channel that acked
     /// 
     /// Used to activally scann for receives on channels. This function sends
-    pub fn scan_channels(&mut self, start: Channel, stop: Channel, packet: &[u8]) -> Result<Vec<Channel>, Error> {
+    pub fn scan_channels(&mut self, start: Channel, stop: Channel, packet: &[u8]) -> Result<Vec<Channel>> {
         let mut ack_data = [0u8; 32];
         let mut result: Vec<Channel> = vec![];
         for ch in start.0..stop.0+1 {
@@ -258,7 +266,7 @@ impl Crazyradio {
     /// Launch the bootloader.
     /// 
     /// Consumes the Crazyradio since it is not usable after that (it is in bootlaoder mode ...).
-    pub fn launch_bootloader(self) -> Result<(), Error> {
+    pub fn launch_bootloader(self) -> Result<()> {
         self.device_handle.write_control(0x40, UsbCommand::LaunchBootloader as u8, 0, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
@@ -267,13 +275,13 @@ impl Crazyradio {
     /// 
     /// In continious carrier mode, the radio will transmit a continious sine
     /// wave at the setup channel frequency using the setup transmit power.
-    pub fn set_cont_carrier(&mut self, enable: bool) -> Result<(), Error> {
+    pub fn set_cont_carrier(&mut self, enable: bool) -> Result<()> {
         self.device_handle.write_control(0x40, UsbCommand::SetContCarrier as u8, enable as u16, 0, &[], Duration::from_secs(1))?;
         Ok(())
     }
 
     /// Send a data packet and receive an ack packet.
-    pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8; 32]) -> Result<usize, Error> {
+    pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8; 32]) -> Result<usize> {
         self.device_handle.write_bulk(0x01, data, Duration::from_secs(1))?;
         let mut received_data = [0u8; 33];
         let received = self.device_handle.read_bulk(0x81, &mut received_data, Duration::from_secs(1))?;
@@ -289,6 +297,7 @@ pub enum Error {
     UsbError(rusb::Error),
     NotFound,
     InvalidArgument,
+    DongleVersionNotSupported,
 }
 
 impl From<rusb::Error> for Error {
@@ -299,7 +308,7 @@ impl From<rusb::Error> for Error {
 pub struct Channel(u8);
 
 impl Channel {
-    pub fn from_number(channel: u8) -> Result<Self, Error> {
+    pub fn from_number(channel: u8) -> Result<Self> {
         if channel < 126 {
             Ok(Channel(channel))
         } else {
