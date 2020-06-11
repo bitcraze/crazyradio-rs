@@ -218,7 +218,7 @@ impl Crazyradio {
         }
     }
 
-    /// Set the number of bytes to wait for when waiting for the ack packet.
+    /// Set time to wait for the ack packet by specifying the max byte-length of the ack payload.
     pub fn set_ard_bytes(&mut self, nbytes: u8) -> Result<()> {
         if nbytes <= 32 {
             self.device_handle.write_control(0x40, UsbCommand::SetRadioArd as u8, 0x80 | nbytes as u16, 0, &[], Duration::from_secs(1))?;
@@ -255,8 +255,8 @@ impl Crazyradio {
         for ch in start.0..stop.0+1 {
             let channel = Channel::from_number(ch).unwrap();
             self.set_channel(channel)?;
-            let n_received = self.send_packet(packet, &mut ack_data)?;
-            if n_received > 0 {
+            let ack = self.send_packet(packet, &mut ack_data)?;
+            if ack.received {
                 result.push(channel);
             }
         }
@@ -281,14 +281,32 @@ impl Crazyradio {
     }
 
     /// Send a data packet and receive an ack packet.
-    pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8; 32]) -> Result<usize> {
+    /// 
+    /// # Arguments
+    /// 
+    ///  * `data`: Up to 32 bytes of data to be send.
+    ///  * `ack_data`: Buffer to hold the data received from the ack packet
+    ///                payload. The ack payload can be up to 32 bytes, if this
+    ///                buffer length is lower than 32 bytes the ack data might
+    ///                be truncated. The length of the ack payload is returned
+    ///                in Ack::length.
+    pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8]) -> Result<Ack> {
         self.device_handle.write_bulk(0x01, data, Duration::from_secs(1))?;
         let mut received_data = [0u8; 33];
         let received = self.device_handle.read_bulk(0x81, &mut received_data, Duration::from_secs(1))?;
 
-        ack_data.copy_from_slice(&received_data[1..]);
+        if ack_data.len() <= 32 {
+            ack_data.copy_from_slice(&received_data[1..ack_data.len()+1]);
+        } else {
+            ack_data.split_at_mut(32).0.copy_from_slice(&received_data[1..33]);
+        }
 
-        Ok(received-1)
+        Ok(Ack{
+            received: received_data[0] & 0x01 != 0,
+            power_detector: received_data[0] & 0x02 != 0,
+            retry: ((received_data[0] & 0xf0) >> 4) as usize,
+            length: received-1,
+        })
     }
 }
 
@@ -302,6 +320,18 @@ pub enum Error {
 
 impl From<rusb::Error> for Error {
     fn from(usb_error: rusb::Error) -> Self { Error::UsbError(usb_error) }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Ack {
+    /// At true if an ack packet has been received
+    pub received: bool,
+    /// Value of the nRF24 power detector when receiving the ack packet
+    pub power_detector: bool,
+    /// Number of time the packet was sent before an ack was received
+    pub retry: usize,
+    /// Payload received in the ack packet
+    pub length: usize,
 }
 
 #[derive(Debug, Copy, Clone)]

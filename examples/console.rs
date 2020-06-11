@@ -19,9 +19,9 @@ fn main() -> Result<(), crazyradio::Error>{
         println!("==================================================");
         let mut ack_data = [0u8; 32];
         for _i in 1..100 {
-            if let Ok(received_len) = cr.send_packet(&[0xff], &mut ack_data) {
-                if received_len > 0 && ack_data[0] == 0 {
-                    print!("{}", str::from_utf8(&ack_data[1..received_len]).unwrap());
+            if let Ok(ack) = cr.send_packet(&[0xff], &mut ack_data) {
+                if ack.length > 0 && ack_data[0] == 0 {
+                    print!("{}", str::from_utf8(&ack_data[1..ack.length]).unwrap());
                 }
             }
         }
