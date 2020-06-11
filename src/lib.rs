@@ -87,7 +87,11 @@ enum UsbCommand {
 /// 
 ///     // Send a `null` packet
 ///     let mut ack_data = [0u8; 32];
-///     let ack_length = cr.send_packet(&[0xff], &mut ack_data)?;
+///     let ack = cr.send_packet(&[0xff], &mut ack_data)?;
+/// 
+///     println!("Ack received: {}, length: {}, data: {:?}", ack.received,
+///                                                          ack.length,
+///                                                          &ack_data[..ack.length]);
 /// 
 ///     Ok(())
 /// }
