@@ -330,7 +330,7 @@ pub struct Ack {
     pub power_detector: bool,
     /// Number of time the packet was sent before an ack was received
     pub retry: usize,
-    /// Payload received in the ack packet
+    /// Length of the ack payload
     pub length: usize,
 }
 
