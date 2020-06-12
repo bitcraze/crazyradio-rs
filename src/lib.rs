@@ -99,6 +99,13 @@ enum UsbCommand {
 pub struct Crazyradio {
     device_desciptor: rusb::DeviceDescriptor,
     device_handle: rusb::DeviceHandle<rusb::GlobalContext>,
+
+    cache_settings: bool,
+
+    // Settings cache
+    channel: Channel,
+    address: [u8; 5],
+    datarate: Datarate,
 }
 
 impl Crazyradio {
@@ -151,6 +158,12 @@ impl Crazyradio {
         let mut cr = Crazyradio {
             device_desciptor,
             device_handle,
+
+            cache_settings: true,
+
+            channel: Channel::from_number(2).unwrap(),
+            address: [0xe7; 5],
+            datarate: Datarate::Dr2M,
         };
 
         cr.reset()?;
@@ -174,6 +187,9 @@ impl Crazyradio {
     /// 
     /// This function is called by Crazyradio::open_*.
     pub fn reset(&mut self) -> Result<()> {
+        let prev_cache_settings = self.cache_settings;
+        self.cache_settings = false;
+
         self.set_datarate(Datarate::Dr2M)?;
         self.set_channel(Channel::from_number(2).unwrap())?;
         self.set_cont_carrier(false)?;
@@ -183,24 +199,50 @@ impl Crazyradio {
         self.set_ard_bytes(32)?;
         self.set_ack_enable(true)?;
 
+        self.cache_settings = prev_cache_settings;
+
         Ok(())
+    }
+
+    /// Enable or disable caching of settings
+    /// 
+    /// If enabled, setting the radio channel, address or datarate will be
+    /// ignored if the settings is the same as the one already set in the dongle
+    /// 
+    /// This is enabled by default and is a useful functionality to efficiently
+    /// implement communication to multiple device as changing these settings
+    /// require USB communication and is quite slow.
+    pub fn set_cache_settings(&mut self, cache_settings: bool) {
+        self.cache_settings = cache_settings;
     }
 
     /// Set the radio channel.
     pub fn set_channel(&mut self, channel: Channel) -> Result<()> {
-        self.device_handle.write_control(0x40, UsbCommand::SetRadioChannel as u8, channel.0 as u16, 0, &[], Duration::from_secs(1))?;
+        if self.cache_settings == false || self.channel != channel {
+            self.device_handle.write_control(0x40, UsbCommand::SetRadioChannel as u8, channel.0 as u16, 0, &[], Duration::from_secs(1))?;
+            self.channel = channel;
+        }
+
         Ok(())
     }
 
     /// Set the datarate.
     pub fn set_datarate(&mut self, datarate: Datarate) -> Result<()> {
-        self.device_handle.write_control(0x40, UsbCommand::SetDataRate as u8, datarate as u16, 0, &[], Duration::from_secs(1))?;
+        if self.cache_settings == false || self.datarate != datarate {
+            self.device_handle.write_control(0x40, UsbCommand::SetDataRate as u8, datarate as u16, 0, &[], Duration::from_secs(1))?;
+            self.datarate = datarate;
+        }
+
         Ok(())
     }
 
     /// Set the radio address.
     pub fn set_address(&mut self, address: &[u8; 5]) -> Result<()> {
-        self.device_handle.write_control(0x40, UsbCommand::SetRadioAddress as u8, 0, 0, address, Duration::from_secs(1))?;
+        if self.cache_settings == false || self.address != *address {
+            self.device_handle.write_control(0x40, UsbCommand::SetRadioAddress as u8, 0, 0, address, Duration::from_secs(1))?;
+            self.address.copy_from_slice(address);
+        }
+
         Ok(())
     }
 
@@ -338,7 +380,7 @@ pub struct Ack {
     pub length: usize,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Channel(u8);
 
 impl Channel {
@@ -355,6 +397,7 @@ impl Into<u8> for Channel {
     fn into(self) -> u8 { self.0 }
 }
 
+#[derive(Copy, Clone, PartialEq)]
 pub enum Datarate {
     Dr250K = 0,
     Dr1M = 1,
