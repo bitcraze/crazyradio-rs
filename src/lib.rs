@@ -351,6 +351,10 @@ impl Channel {
     }
 }
 
+impl Into<u8> for Channel {
+    fn into(self) -> u8 { self.0 }
+}
+
 pub enum Datarate {
     Dr250K = 0,
     Dr1M = 1,
