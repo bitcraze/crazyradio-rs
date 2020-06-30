@@ -157,8 +157,12 @@ impl Crazyradio {
 
         device_handle.claim_interface(0)?;
 
+        // Make sure the dongle version is >= 0.5
         let version = device_desciptor.device_version();
-        if version.major() != 0 && version.minor() < 5 {
+        let version = version.major() as f64
+            + (version.minor() as f64 / 10.0)
+            + (version.sub_minor() as f64 / 100.0);
+        if version < 0.5 {
             return Err(Error::DongleVersionNotSupported);
         }
 
