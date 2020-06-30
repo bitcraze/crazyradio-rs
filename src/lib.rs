@@ -474,7 +474,7 @@ pub struct Ack {
     pub length: usize,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct Channel(u8);
 
 impl Channel {
