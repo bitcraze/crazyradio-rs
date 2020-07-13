@@ -16,3 +16,7 @@ Crazyflie nano quadcopter.
 The crates exposes a ```Crazyradio``` struct that can be used to open a
 Crazyradio dongle, configure it, sent packet and receive ack with it. See the
 [Crazyradio struct documentation](https://docs.rs/crazyradio) for an example.
+
+## Serde support
+
+To enable Serde support for serializing and deserializing ```Channels```, enable the feature "serde_support".
