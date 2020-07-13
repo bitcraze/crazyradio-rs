@@ -1,4 +1,4 @@
-# Crazyradio Rust driver [![Latest version](https://img.shields.io/crates/v/crazyradio.svg)](https://crates.io/crates/crazyradio) [![Documentation](https://docs.rs/crazyradio/badge.svg)](https://docs.rs/crazyradio)
+# Crazyradio Rust driver [![Latest version](https://img.shields.io/crates/v/crazyradio.svg)](https://crates.io/crates/crazyradio) [![Documentation](https://docs.rs/crazyradio/badge.svg)](https://docs.rs/crazyradio) [![tests](https://github.com/ataffanel/crazyradio-rs/workflows/tests/badge.svg)](https://github.com/ataffanel/crazyradio-rs/actions)
 
 Crazyradio USB dongle driver for Rust.
 

@@ -1,5 +1,7 @@
 use core::time::Duration;
 use rusb;
+#[cfg(feature = "serde_support")]
+use serde::{Deserialize, Serialize};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -475,7 +477,21 @@ pub struct Ack {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde_support", derive(Serialize))]
 pub struct Channel(u8);
+
+#[cfg(feature = "serde_support")]
+impl<'de> Deserialize<'de> for Channel {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Channel, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let ch_number: u8 = Deserialize::deserialize(deserializer)?;
+        let channel = Channel::from_number(ch_number)
+            .map_err(|e| serde::de::Error::custom(format!("{:?}", e)))?;
+        Ok(channel)
+    }
+}
 
 impl Channel {
     pub fn from_number(channel: u8) -> Result<Self> {
@@ -509,8 +525,39 @@ pub enum Power {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "serde_support")]
+    use serde_json;
+
+    #[cfg(feature = "serde_support")]
+    use super::Channel;
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    #[cfg(feature = "serde_support")]
+    fn test_that_deserializing_a_correct_channel_works() {
+        let test_str = "42";
+
+        let result: Result<Channel, serde_json::Error> = serde_json::from_str(test_str);
+
+        assert!(matches!(result, Ok(Channel(42))));
+    }
+
+    #[test]
+    #[cfg(feature = "serde_support")]
+    fn test_that_deserializing_an_incorrect_channel_works() {
+        let test_str = "126";
+
+        let result: Result<Channel, serde_json::Error> = serde_json::from_str(test_str);
+
+        assert!(matches!(result, Err(_)));
+    }
+
+    #[test]
+    #[cfg(feature = "serde_support")]
+    fn test_that_serialize_channel_works() {
+        let test_channel = Channel(42);
+
+        let result = serde_json::to_string(&test_channel);
+
+        assert!(matches!(result, Ok(str) if str == "42"));
     }
 }
