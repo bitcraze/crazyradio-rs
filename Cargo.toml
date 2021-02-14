@@ -15,6 +15,7 @@ categories = ["hardware-support"]
 [dependencies]
 rusb = "0.5"
 serde = { version = "1.0", features = ["derive"], optional = true }
+thiserror = "1.0"
 
 [dev-dependencies]
 serde_json = "1.0"

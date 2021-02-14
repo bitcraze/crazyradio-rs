@@ -450,11 +450,15 @@ impl Crazyradio {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
+    #[error("Usb Error: {0}:?")]
     UsbError(rusb::Error),
+    #[error("Crazyradio not found")]
     NotFound,
+    #[error("Invalid arguments")]
     InvalidArgument,
+    #[error("Crazyradio version not supported")]
     DongleVersionNotSupported,
 }
 
