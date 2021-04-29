@@ -1,6 +1,6 @@
 [package]
 name = "crazyradio"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Arnaud Taffanel <arnaud@taffanel.org>"]
 edition = "2018"
 description = "Crazyradio USB dongle driver"
@@ -16,12 +16,16 @@ exclude = [
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rusb = "0.5"
+rusb = "0.8.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 thiserror = "1.0"
+flume = { version = "0.10.4", optional = true }
+async-trait = { version = "0.1.50", optional = true }
 
 [dev-dependencies]
 serde_json = "1.0"
+async-std = {version = "1", features = ["attributes"] }
 
 [features]
 serde_support = ["serde"]
+shared_radio = ["flume", "async-trait"]

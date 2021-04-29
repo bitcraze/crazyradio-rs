@@ -1,3 +1,8 @@
+#[cfg(feature = "shared_radio")]
+mod shared_radio;
+#[cfg(feature = "shared_radio")]
+pub use crate::shared_radio::SharedCrazyradio;
+
 use core::time::Duration;
 use rusb;
 #[cfg(feature = "serde_support")]

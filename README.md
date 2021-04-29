@@ -17,6 +17,11 @@ The crates exposes a ```Crazyradio``` struct that can be used to open a
 Crazyradio dongle, configure it, sent packet and receive ack with it. See the
 [Crazyradio struct documentation](https://docs.rs/crazyradio) for an example.
 
+## Shared and async radio
+
+The feature `shared_radio` enables the `SharedCrazyradio` struct that
+can be used to share a radio dongle between threads or async tasks.
+
 ## Serde support
 
 To enable Serde support for serializing and deserializing ```Channels```, enable the feature "serde_support".
