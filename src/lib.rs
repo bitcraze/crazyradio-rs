@@ -4,9 +4,10 @@ mod shared_radio;
 pub use crate::shared_radio::SharedCrazyradio;
 
 use core::time::Duration;
-use rusb;
 #[cfg(feature = "serde_support")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "async")]
+use tokio::task::spawn_blocking;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -452,6 +453,36 @@ impl Crazyradio {
             retry: ((received_data[0] & 0xf0) >> 4) as usize,
             length: received - 1,
         })
+    }
+}
+
+// Async implementations
+// Mostly wrap sync calls into tokio's spawn_blocking
+#[cfg(feature = "async")]
+impl Crazyradio {
+    pub async fn open_first_async() -> Result<Self> {
+        spawn_blocking(move || {
+            Self::open_first()
+        }).await.unwrap()
+    }
+
+    pub async fn open_nth_async(nth: usize) -> Result<Self> {
+        spawn_blocking(move || {
+            Self::open_nth(nth)
+        }).await.unwrap()
+    }
+
+    pub async fn open_by_serial_async(serial: &str) -> Result<Self> {
+        let serial = serial.to_owned();
+        spawn_blocking(move || {
+            Self::open_by_serial(&serial)
+        }).await.unwrap()
+    }
+
+    pub async fn list_serials_async() -> Result<Vec<String>> {
+        spawn_blocking(move || {
+            Self::list_serials()
+        }).await.unwrap()
     }
 }
 
