@@ -6,8 +6,6 @@ pub use crate::shared_radio::SharedCrazyradio;
 use core::time::Duration;
 #[cfg(feature = "serde_support")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "async")]
-use tokio::task::spawn_blocking;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -461,28 +459,45 @@ impl Crazyradio {
 #[cfg(feature = "async")]
 impl Crazyradio {
     pub async fn open_first_async() -> Result<Self> {
-        spawn_blocking(move || {
-            Self::open_first()
-        }).await.unwrap()
+        let (tx, rx) = flume::bounded(0);
+
+        std::thread::spawn(move || {
+            tx.send(Self::open_first())
+        });
+
+        rx.recv_async().await.unwrap()
     }
 
     pub async fn open_nth_async(nth: usize) -> Result<Self> {
-        spawn_blocking(move || {
-            Self::open_nth(nth)
-        }).await.unwrap()
+        let (tx, rx) = flume::bounded(0);
+
+        std::thread::spawn(move || {
+            tx.send(Self::open_nth(nth))
+        });
+
+        rx.recv_async().await.unwrap()
     }
 
     pub async fn open_by_serial_async(serial: &str) -> Result<Self> {
         let serial = serial.to_owned();
-        spawn_blocking(move || {
-            Self::open_by_serial(&serial)
-        }).await.unwrap()
+
+        let (tx, rx) = flume::bounded(0);
+
+        std::thread::spawn(move || {
+            tx.send(Self::open_by_serial(&serial))
+        });
+
+        rx.recv_async().await.unwrap()
     }
 
     pub async fn list_serials_async() -> Result<Vec<String>> {
-        spawn_blocking(move || {
-            Self::list_serials()
-        }).await.unwrap()
+        let (tx, rx) = flume::bounded(0);
+
+        std::thread::spawn(move || {
+            tx.send(Self::list_serials())
+        });
+
+        rx.recv_async().await.unwrap()
     }
 }
 
