@@ -251,7 +251,8 @@ fn radio_loop(crazyradio: Crazyradio, radio_cmd: Receiver<RadioCommand>) {
                 payload,
             } => {
                 let res = scan(&mut crazyradio, start, stop, address, payload);
-                client.send(res).unwrap();
+                // Ignore the error if the client has dropped since it did the request
+                let _ = client.send(res);
             }
             RadioCommand::SendPacket {
                 client,
@@ -260,7 +261,8 @@ fn radio_loop(crazyradio: Crazyradio, radio_cmd: Receiver<RadioCommand>) {
                 payload,
             } => {
                 let res = send_packet(&mut crazyradio, channel, address, payload);
-                client.send(res).unwrap();
+                // Ignore the error if the client has dropped since it did the request
+                let _ = client.send(res);
             }
         }
     }
