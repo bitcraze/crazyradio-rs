@@ -1,5 +1,3 @@
-use crazyradio;
-
 fn main() -> Result<(), crazyradio::Error> {
     let serials = crazyradio::Crazyradio::list_serials()?;
 

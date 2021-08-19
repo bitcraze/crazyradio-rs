@@ -29,7 +29,7 @@ fn find_crazyradio(
             n += 1;
         }
     }
-    return Err(Error::NotFound);
+    Err(Error::NotFound)
 }
 
 fn get_serial<T: rusb::UsbContext>(
@@ -38,9 +38,9 @@ fn get_serial<T: rusb::UsbContext>(
 ) -> Result<String> {
     let languages = handle.read_languages(Duration::from_secs(1))?;
 
-    if languages.len() > 0 {
+    if !languages.is_empty() {
         let serial =
-            handle.read_serial_number_string(languages[0], &device_desc, Duration::from_secs(1))?;
+            handle.read_serial_number_string(languages[0], device_desc, Duration::from_secs(1))?;
         Ok(serial)
     } else {
         Err(Error::NotFound)
@@ -58,7 +58,7 @@ fn list_crazyradio_serials() -> Result<Vec<String>> {
 
             let languages = handle.read_languages(Duration::from_secs(1))?;
 
-            if languages.len() > 0 {
+            if !languages.is_empty() {
                 let serial = handle.read_serial_number_string(
                     languages[0],
                     &device_desc,
@@ -235,7 +235,7 @@ impl Crazyradio {
 
     /// Set the radio channel.
     pub fn set_channel(&mut self, channel: Channel) -> Result<()> {
-        if self.cache_settings == false || self.channel != channel {
+        if !self.cache_settings || self.channel != channel {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetRadioChannel as u8,
@@ -252,7 +252,7 @@ impl Crazyradio {
 
     /// Set the datarate.
     pub fn set_datarate(&mut self, datarate: Datarate) -> Result<()> {
-        if self.cache_settings == false || self.datarate != datarate {
+        if !self.cache_settings || self.datarate != datarate {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetDataRate as u8,
@@ -269,7 +269,7 @@ impl Crazyradio {
 
     /// Set the radio address.
     pub fn set_address(&mut self, address: &[u8; 5]) -> Result<()> {
-        if self.cache_settings == false || self.address != *address {
+        if !self.cache_settings || self.address != *address {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetRadioAddress as u8,
@@ -461,9 +461,7 @@ impl Crazyradio {
     pub async fn open_first_async() -> Result<Self> {
         let (tx, rx) = flume::bounded(0);
 
-        std::thread::spawn(move || {
-            tx.send(Self::open_first())
-        });
+        std::thread::spawn(move || tx.send(Self::open_first()));
 
         rx.recv_async().await.unwrap()
     }
@@ -471,9 +469,7 @@ impl Crazyradio {
     pub async fn open_nth_async(nth: usize) -> Result<Self> {
         let (tx, rx) = flume::bounded(0);
 
-        std::thread::spawn(move || {
-            tx.send(Self::open_nth(nth))
-        });
+        std::thread::spawn(move || tx.send(Self::open_nth(nth)));
 
         rx.recv_async().await.unwrap()
     }
@@ -483,9 +479,7 @@ impl Crazyradio {
 
         let (tx, rx) = flume::bounded(0);
 
-        std::thread::spawn(move || {
-            tx.send(Self::open_by_serial(&serial))
-        });
+        std::thread::spawn(move || tx.send(Self::open_by_serial(&serial)));
 
         rx.recv_async().await.unwrap()
     }
@@ -493,9 +487,7 @@ impl Crazyradio {
     pub async fn list_serials_async() -> Result<Vec<String>> {
         let (tx, rx) = flume::bounded(0);
 
-        std::thread::spawn(move || {
-            tx.send(Self::list_serials())
-        });
+        std::thread::spawn(move || tx.send(Self::list_serials()));
 
         rx.recv_async().await.unwrap()
     }
@@ -558,9 +550,9 @@ impl Channel {
     }
 }
 
-impl Into<u8> for Channel {
-    fn into(self) -> u8 {
-        self.0
+impl From<Channel> for u8 {
+    fn from(val: Channel) -> Self {
+        val.0
     }
 }
 

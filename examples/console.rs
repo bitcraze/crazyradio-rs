@@ -12,7 +12,7 @@ fn main() -> Result<(), crazyradio::Error> {
         Channel::from_number(125).unwrap(),
         &[0xff],
     )?;
-    if channels.len() > 0 {
+    if !channels.is_empty() {
         println!(
             "{} Crazyflies found, connecting {:?}.",
             channels.len(),
