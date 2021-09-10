@@ -1,3 +1,15 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
+//! # Crazyradio driver for Rust
+//!
+//! This crate aims at providing a Rust API for the [Crazyradio](https://www.bitcraze.io/products/crazyradio-pa/)
+//! USB Dongle.
+//!
+//! Available Cargo features:
+//!  - **shared_radio** enables [SharedCrazyradio] object that allows to share a radio between threads
+//!  - **async** enables async function to create a [Crazyradio] object and use the [SharedCrazyradio]
+//!  - **serde** emables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
+
 #[cfg(feature = "shared_radio")]
 mod shared_radio;
 #[cfg(feature = "shared_radio")]
@@ -454,10 +466,19 @@ impl Crazyradio {
     }
 }
 
-// Async implementations
-// Mostly wrap sync calls into tokio's spawn_blocking
+/// # Async implementations
+///
+/// Async version of open/getserial functions.
+///
+/// Implemented by launching a thread, calling the sync function and passing the
+/// result back though a channel.
+/// This is not the most efficient implementation but it keeps the lib executor-independent
+/// and these functions are only one-time-call in most programs.
 #[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl Crazyradio {
+
+    /// Async vesion of [Crazyradio::open_first()]
     pub async fn open_first_async() -> Result<Self> {
         let (tx, rx) = flume::bounded(0);
 
@@ -466,6 +487,7 @@ impl Crazyradio {
         rx.recv_async().await.unwrap()
     }
 
+    /// Async vesion of [Crazyradio::open_nth()]
     pub async fn open_nth_async(nth: usize) -> Result<Self> {
         let (tx, rx) = flume::bounded(0);
 
@@ -474,6 +496,7 @@ impl Crazyradio {
         rx.recv_async().await.unwrap()
     }
 
+    /// Async vesion of [Crazyradio::open_by_serial()]
     pub async fn open_by_serial_async(serial: &str) -> Result<Self> {
         let serial = serial.to_owned();
 
@@ -484,6 +507,7 @@ impl Crazyradio {
         rx.recv_async().await.unwrap()
     }
 
+    /// Async vesion of [Crazyradio::list_serials()]
     pub async fn list_serials_async() -> Result<Vec<String>> {
         let (tx, rx) = flume::bounded(0);
 
@@ -511,6 +535,7 @@ impl From<rusb::Error> for Error {
     }
 }
 
+/// Ack status of a sent packet
 #[derive(Debug, Copy, Clone)]
 pub struct Ack {
     /// At true if an ack packet has been received
@@ -523,6 +548,7 @@ pub struct Ack {
     pub length: usize,
 }
 
+/// Radio channel
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde_support", derive(Serialize))]
 pub struct Channel(u8);
@@ -556,6 +582,7 @@ impl From<Channel> for u8 {
     }
 }
 
+/// Radio datarate
 #[derive(Copy, Clone, PartialEq)]
 pub enum Datarate {
     Dr250K = 0,
@@ -563,6 +590,7 @@ pub enum Datarate {
     Dr2M = 2,
 }
 
+/// Radio power
 pub enum Power {
     Pm18dBm = 0,
     Pm12dBm = 1,

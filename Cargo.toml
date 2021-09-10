@@ -1,6 +1,6 @@
 [package]
 name = "crazyradio"
-version = "0.1.6"
+version = "0.2.0"
 authors = ["Arnaud Taffanel <arnaud@taffanel.org>"]
 edition = "2018"
 description = "Crazyradio USB dongle driver"
@@ -19,8 +19,7 @@ exclude = [
 rusb = "0.8.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 thiserror = "1.0"
-flume = { version = "0.10.4", optional = true }
-async-trait = { version = "0.1.50", optional = true }
+flume = { version = "0.10.4", optional = true, default-features = false }
 
 [dev-dependencies]
 serde_json = "1.0"
@@ -28,5 +27,9 @@ tokio = { version = "1.6.1", features = ["rt", "rt-multi-thread","macros"] }
 
 [features]
 serde_support = ["serde"]
-shared_radio = ["flume", "async-trait"]
-async = ["flume"]
+shared_radio = ["flume"]
+async = ["flume/async"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

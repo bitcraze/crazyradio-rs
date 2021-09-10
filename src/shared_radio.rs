@@ -1,3 +1,6 @@
+#![cfg(feature = "shared_radio")]
+#![cfg_attr(docsrs, doc(cfg(feature = "shared_radio")))]
+
 use crate::Result;
 use crate::{Ack, Channel, Crazyradio};
 use flume::{bounded, unbounded, Receiver, Sender};
@@ -41,6 +44,14 @@ pub struct SharedCrazyradio {
 }
 
 impl SharedCrazyradio {
+
+    /// Create a shared crazyradio. The Shared Crazyradio takes ownership of the 
+    /// Crazyradio object to that it is not usable outside anymore.
+    ///
+    /// Will spawn a thread that service the radio requests. The radio can be
+    /// shared by cloning the [SharedCrazyradio] object. When the last object
+    /// is dropped, the thread will be closed and the Crazyradio is dropped as
+    /// well closing the USB connection to it.
     pub fn new(radio: Crazyradio) -> Self {
         let (radio_command, radio_command_recv) = unbounded();
 
@@ -60,6 +71,12 @@ impl SharedCrazyradio {
         }
     }
 
+    /// Scan channels between start and stop for a specified address and payload.
+    /// Internally it sets the address and calls [Crazyradio::scan_channels()].
+    ///
+    /// This function is atomic, this means that the radio will be taken for the
+    /// whole duration of the scan. The intention is that scan are rare and done
+    /// before any connection are active.
     pub fn scan(
         &self,
         start: Channel,
@@ -82,29 +99,13 @@ impl SharedCrazyradio {
         Ok(result.found)
     }
 
-    pub async fn scan_async(
-        &self,
-        start: Channel,
-        stop: Channel,
-        address: [u8; 5],
-        payload: Vec<u8>,
-    ) -> Result<Vec<Channel>> {
-        self.radio_command
-            .send_async(RadioCommand::Scan {
-                client: self.scan_res_send.clone(),
-                start,
-                stop,
-                address,
-                payload,
-            })
-            .await
-            .unwrap();
-
-        let result = self.scan_res.recv_async().await.unwrap()?;
-
-        Ok(result.found)
-    }
-
+    /// Send a packet to a `channel`, `address` containing `payload`.
+    ///
+    /// Returns an [Ack] struct containing information about the ack packet as
+    /// well as the data content of the ack packet if an ack has been received.
+    ///
+    /// Can return any error the [Crazyradio::send_packet()] can return. This is
+    /// mostly USB communication errors if the Crazyradio is disconnected.
     pub fn send_packet(
         &self,
         channel: Channel,
@@ -132,7 +133,36 @@ impl SharedCrazyradio {
             result.payload,
         ))
     }
+}
 
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+impl SharedCrazyradio {
+    /// Async version of `scan()`
+    pub async fn scan_async(
+        &self,
+        start: Channel,
+        stop: Channel,
+        address: [u8; 5],
+        payload: Vec<u8>,
+    ) -> Result<Vec<Channel>> {
+        self.radio_command
+            .send_async(RadioCommand::Scan {
+                client: self.scan_res_send.clone(),
+                start,
+                stop,
+                address,
+                payload,
+            })
+            .await
+            .unwrap();
+
+        let result = self.scan_res.recv_async().await.unwrap()?;
+
+        Ok(result.found)
+    }
+
+    /// Async version of `send_packet()`
     pub async fn send_packet_async(
         &self,
         channel: Channel,

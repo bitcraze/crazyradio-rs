@@ -20,7 +20,10 @@ Crazyradio dongle, configure it, sent packet and receive ack with it. See the
 ## Shared and async radio
 
 The feature `shared_radio` enables the `SharedCrazyradio` struct that
-can be used to share a radio dongle between threads or async tasks.
+can be used to share a radio dongle between threads.
+
+The feature `async` enables async functions in the `SharedRadio` struct as well
+as to create the `Crazyradio` struct.
 
 ## Serde support
 
