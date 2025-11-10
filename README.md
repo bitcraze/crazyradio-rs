@@ -17,6 +17,13 @@ The crates exposes a ```Crazyradio``` struct that can be used to open a
 Crazyradio dongle, configure it, sent packet and receive ack with it. See the
 [Crazyradio struct documentation](https://docs.rs/crazyradio) for an example.
 
+To run the examples use, e.g.,:
+
+```
+cargo run --features async,shared_radio --example async_scan
+cargo run --example console
+```
+
 ## Shared and async radio
 
 The feature `shared_radio` enables the `SharedCrazyradio` struct that
