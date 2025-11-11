@@ -39,6 +39,8 @@ pub struct SharedCrazyradio {
     radio_command: Sender<RadioCommand>,
     send_packet_res_send: Sender<Result<SendPacketResult>>,
     send_packet_res: Receiver<Result<SendPacketResult>>,
+    send_packet_no_ack_res_send: Sender<Result<()>>,
+    send_packet_no_ack_res: Receiver<Result<()>>,
     scan_res_send: Sender<Result<ScanResult>>,
     scan_res: Receiver<Result<ScanResult>>,
 }
@@ -60,12 +62,15 @@ impl SharedCrazyradio {
         });
 
         let (send_packet_res_send, send_packet_res) = bounded(1);
+        let (send_packet_no_ack_res_send, send_packet_no_ack_res) = bounded(1);
         let (scan_res_send, scan_res) = bounded(1);
 
         SharedCrazyradio {
             radio_command,
             send_packet_res_send,
             send_packet_res,
+            send_packet_no_ack_res_send,
+            send_packet_no_ack_res,
             scan_res_send,
             scan_res,
         }
@@ -133,6 +138,27 @@ impl SharedCrazyradio {
             result.payload,
         ))
     }
+
+    /// Send a packet to a `channel`, `address` containing `payload` without caring about an Ack.
+    ///
+    /// Can return any error the [Crazyradio::send_packet_no_ack()] can return. This is
+    /// mostly USB communication errors if the Crazyradio is disconnected.
+    pub fn send_packet_no_ack(
+        &self,
+        channel: Channel,
+        address: [u8; 5],
+        payload: Vec<u8>,
+    ) -> Result<()> {
+        self.radio_command
+            .send(RadioCommand::SendPacketNoAck {
+                client: self.send_packet_no_ack_res_send.clone(),
+                channel,
+                address,
+                payload,
+            })
+            .unwrap();
+        Ok(())
+    }
 }
 
 #[cfg(feature = "async")]
@@ -191,21 +217,46 @@ impl SharedCrazyradio {
             result.payload,
         ))
     }
+
+    /// Async version of `send_packet_no_ack()`
+    pub async fn send_packet_no_ack_async(
+        &self,
+        channel: Channel,
+        address: [u8; 5],
+        payload: Vec<u8>,
+    ) -> Result<()> {
+        self.radio_command
+            .send_async(RadioCommand::SendPacketNoAck {
+                client: self.send_packet_no_ack_res_send.clone(),
+                channel,
+                address,
+                payload,
+            })
+            .await
+            .unwrap();
+
+        self.send_packet_no_ack_res.recv_async().await.unwrap()?;
+
+        Ok(())
+    }
 }
 
 impl Clone for SharedCrazyradio {
     fn clone(&self) -> Self {
         // Create new pair of return channels
         let (send_packet_res_send, send_packet_res) = bounded(1);
+        let (send_packet_no_ack_res_send, send_packet_no_ack_res) = bounded(1);
         let (scan_res_send, scan_res) = bounded(1);
 
-        // The command channel is clonned
+        // The command channel is cloned
         let radio_command = self.radio_command.clone();
 
         SharedCrazyradio {
             radio_command,
             send_packet_res_send,
             send_packet_res,
+            send_packet_no_ack_res_send,
+            send_packet_no_ack_res,
             scan_res_send,
             scan_res,
         }
@@ -215,6 +266,12 @@ impl Clone for SharedCrazyradio {
 enum RadioCommand {
     SendPacket {
         client: Sender<Result<SendPacketResult>>,
+        channel: Channel,
+        address: [u8; 5],
+        payload: Vec<u8>,
+    },
+    SendPacketNoAck {
+        client: Sender<Result<()>>,
         channel: Channel,
         address: [u8; 5],
         payload: Vec<u8>,
@@ -259,6 +316,7 @@ fn send_packet(
     ack_data.resize(32, 0);
     crazyradio.set_channel(channel)?;
     crazyradio.set_address(&address)?;
+    crazyradio.set_ack_enable(true)?;
 
     let ack = crazyradio.send_packet(&payload, &mut ack_data)?;
     ack_data.resize(ack.length, 0);
@@ -267,6 +325,19 @@ fn send_packet(
         acked: ack.received,
         payload: ack_data,
     })
+}
+
+fn send_packet_no_ack (
+    crazyradio: &mut Crazyradio,
+    channel: Channel,
+    address: [u8; 5],
+    payload: Vec<u8>,
+) -> Result<()> {
+    crazyradio.set_channel(channel)?;
+    crazyradio.set_address(&address)?;
+    crazyradio.set_ack_enable(false)?;
+
+    crazyradio.send_packet_no_ack(&payload)
 }
 
 fn radio_loop(crazyradio: Crazyradio, radio_cmd: Receiver<RadioCommand>) {
@@ -291,6 +362,16 @@ fn radio_loop(crazyradio: Crazyradio, radio_cmd: Receiver<RadioCommand>) {
                 payload,
             } => {
                 let res = send_packet(&mut crazyradio, channel, address, payload);
+                // Ignore the error if the client has dropped since it did the request
+                let _ = client.send(res);
+            }
+            RadioCommand::SendPacketNoAck {
+                client,
+                channel,
+                address,
+                payload,
+            } => {
+                let res = send_packet_no_ack(&mut crazyradio, channel, address, payload);
                 // Ignore the error if the client has dropped since it did the request
                 let _ = client.send(res);
             }

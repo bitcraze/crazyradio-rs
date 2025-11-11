@@ -464,6 +464,18 @@ impl Crazyradio {
             length: received - 1,
         })
     }
+
+    /// Send a data packet without caring for Ack (for broadcast communication).
+    ///
+    /// # Arguments
+    ///
+    ///  * `data`: Up to 32 bytes of data to be send.
+    pub fn send_packet_no_ack(&mut self, data: &[u8]) -> Result<()> {
+        self.device_handle
+            .write_bulk(0x01, data, Duration::from_secs(1))?;
+
+        Ok(())
+    }
 }
 
 /// # Async implementations
