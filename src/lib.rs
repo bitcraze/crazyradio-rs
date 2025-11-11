@@ -171,7 +171,7 @@ impl Crazyradio {
         let device = find_crazyradio(nth, serial)?;
 
         let device_desciptor = device.device_descriptor()?;
-        let mut device_handle = device.open()?;
+        let device_handle = device.open()?;
 
         device_handle.claim_interface(0)?;
 
