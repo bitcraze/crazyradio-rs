@@ -93,6 +93,7 @@ enum UsbCommand {
     AckEnable = 0x10,
     SetContCarrier = 0x20,
     // ScanChannels = 0x21,
+    SetPacketLossSimulation = 0x30,
     LaunchBootloader = 0xff,
 }
 
@@ -171,7 +172,7 @@ impl Crazyradio {
         let device = find_crazyradio(nth, serial)?;
 
         let device_desciptor = device.device_descriptor()?;
-        let device_handle = device.open()?;
+        let mut device_handle = device.open()?;
 
         device_handle.claim_interface(0)?;
 
@@ -428,6 +429,29 @@ impl Crazyradio {
             Duration::from_secs(1),
         )?;
         Ok(())
+    }
+
+    /// Set packet loss simulation.
+    /// 
+    pub fn set_packet_loss_simulation(&mut self, packet_loss_percent: u8, ack_loss_percent: u8) -> Result<()> {
+        if self.device_desciptor.device_version() < rusb::Version::from_bcd(0x0500) {
+            return Err(Error::DongleVersionNotSupported);
+        }
+
+        if packet_loss_percent <= 100 && ack_loss_percent <= 100 {
+            let data = [packet_loss_percent, ack_loss_percent];
+            self.device_handle.write_control(
+                0x40,
+                UsbCommand::SetPacketLossSimulation as u8,
+                0,
+                0,
+                &data,
+                Duration::from_secs(1),
+            )?;
+            Ok(())
+        } else {
+            Err(Error::InvalidArgument)
+        }
     }
 
     /// Send a data packet and receive an ack packet.
