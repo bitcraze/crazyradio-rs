@@ -93,6 +93,7 @@ enum UsbCommand {
     AckEnable = 0x10,
     SetContCarrier = 0x20,
     // ScanChannels = 0x21,
+    SetInlineMode = 0x23,
     SetPacketLossSimulation = 0x30,
     LaunchBootloader = 0xff,
 }
@@ -128,11 +129,13 @@ pub struct Crazyradio {
     device_handle: rusb::DeviceHandle<rusb::GlobalContext>,
 
     cache_settings: bool,
+    inline_mode: bool,
 
     // Settings cache
     channel: Channel,
     address: [u8; 5],
     datarate: Datarate,
+    ack_enable: bool,
 }
 
 impl Crazyradio {
@@ -190,10 +193,13 @@ impl Crazyradio {
             device_handle,
 
             cache_settings: true,
+            inline_mode: false,
 
             channel: Channel::from_number(2).unwrap(),
             address: [0xe7; 5],
             datarate: Datarate::Dr2M,
+
+            ack_enable: true,
         };
 
         cr.reset()?;
@@ -219,6 +225,9 @@ impl Crazyradio {
     pub fn reset(&mut self) -> Result<()> {
         let prev_cache_settings = self.cache_settings;
         self.cache_settings = false;
+
+        // Try to set inline mode, ignore failure as this is not fatal (old radio FW do not implement it and will just be slower)
+        _ = self.set_inline_mode(true);
 
         self.set_datarate(Datarate::Dr2M)?;
         self.set_channel(Channel::from_number(2).unwrap())?;
@@ -248,7 +257,7 @@ impl Crazyradio {
 
     /// Set the radio channel.
     pub fn set_channel(&mut self, channel: Channel) -> Result<()> {
-        if !self.cache_settings || self.channel != channel {
+        if !self.inline_mode && (!self.cache_settings || self.channel != channel) {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetRadioChannel as u8,
@@ -257,15 +266,16 @@ impl Crazyradio {
                 &[],
                 Duration::from_secs(1),
             )?;
-            self.channel = channel;
         }
+
+        self.channel = channel;
 
         Ok(())
     }
 
     /// Set the datarate.
     pub fn set_datarate(&mut self, datarate: Datarate) -> Result<()> {
-        if !self.cache_settings || self.datarate != datarate {
+        if !self.inline_mode && (!self.cache_settings || self.datarate != datarate) {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetDataRate as u8,
@@ -274,15 +284,16 @@ impl Crazyradio {
                 &[],
                 Duration::from_secs(1),
             )?;
-            self.datarate = datarate;
         }
+
+        self.datarate = datarate;
 
         Ok(())
     }
 
     /// Set the radio address.
     pub fn set_address(&mut self, address: &[u8; 5]) -> Result<()> {
-        if !self.cache_settings || self.address != *address {
+        if !self.inline_mode && (!self.cache_settings || self.address != *address) {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetRadioAddress as u8,
@@ -291,6 +302,9 @@ impl Crazyradio {
                 address,
                 Duration::from_secs(1),
             )?;
+        }
+
+        if self.cache_settings || self.inline_mode {
             self.address.copy_from_slice(address);
         }
 
@@ -367,14 +381,19 @@ impl Crazyradio {
     ///
     /// Should be disabled when sending broadcast packets.
     pub fn set_ack_enable(&mut self, ack_enable: bool) -> Result<()> {
-        self.device_handle.write_control(
-            0x40,
-            UsbCommand::AckEnable as u8,
-            ack_enable as u16,
-            0,
-            &[],
-            Duration::from_secs(1),
-        )?;
+        if !self.inline_mode && ack_enable != self.ack_enable {
+            self.device_handle.write_control(
+                0x40,
+                UsbCommand::AckEnable as u8,
+                ack_enable as u16,
+                0,
+                &[],
+                Duration::from_secs(1),
+            )?;
+        }
+
+        self.ack_enable = ack_enable;
+
         Ok(())
     }
 
@@ -431,6 +450,33 @@ impl Crazyradio {
         Ok(())
     }
 
+    /// Set inline-settings USB protocol mode
+    /// 
+    /// When this mode is enables, setting channel, datarate, address and
+    /// ack_enable will become cached operation and these settings
+    /// will be sent as header to the data over USB. This increases performance
+    /// when communicating with more than one PRX.
+    /// 
+    /// This mode, if available, is activated by default when creating the Crazyradio
+    /// object.
+    /// 
+    /// This mode is only available with Crazyradio 2.0+
+    pub fn set_inline_mode(&mut self, inline_mode_enable: bool) -> Result<()> {
+        let setting = inline_mode_enable.then_some(1).unwrap_or(0);
+
+        self.device_handle.write_control(
+            0x40,
+            UsbCommand::SetInlineMode as u8,
+            setting,
+            0,
+            &[],
+            Duration::from_secs(1),
+        )?;
+        self.inline_mode = inline_mode_enable;
+
+        Ok(())
+    }
+
     /// Set packet loss simulation.
     /// 
     pub fn set_packet_loss_simulation(&mut self, packet_loss_percent: u8, ack_loss_percent: u8) -> Result<()> {
@@ -465,28 +511,34 @@ impl Crazyradio {
     ///                be truncated. The length of the ack payload is returned
     ///                in Ack::length.
     pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8]) -> Result<Ack> {
-        self.device_handle
-            .write_bulk(0x01, data, Duration::from_secs(1))?;
-        let mut received_data = [0u8; 33];
-        let received =
-            self.device_handle
-                .read_bulk(0x81, &mut received_data, Duration::from_secs(1))?;
 
-        if ack_data.len() <= 32 {
-            ack_data.copy_from_slice(&received_data[1..ack_data.len() + 1]);
+        if self.inline_mode {
+            self.send_inline(data, Some(ack_data))
         } else {
-            ack_data
-                .split_at_mut(32)
-                .0
-                .copy_from_slice(&received_data[1..33]);
-        }
+            self.device_handle
+                .write_bulk(0x01, data, Duration::from_secs(1))?;
+            let mut received_data = [0u8; 33];
+            let received =
+                self.device_handle
+                    .read_bulk(0x81, &mut received_data, Duration::from_secs(1))?;
 
-        Ok(Ack {
-            received: received_data[0] & 0x01 != 0,
-            power_detector: received_data[0] & 0x02 != 0,
-            retry: ((received_data[0] & 0xf0) >> 4) as usize,
-            length: received - 1,
-        })
+            if ack_data.len() <= 32 {
+                ack_data.copy_from_slice(&received_data[1..ack_data.len() + 1]);
+            } else {
+                ack_data
+                    .split_at_mut(32)
+                    .0
+                    .copy_from_slice(&received_data[1..33]);
+            }
+
+            Ok(Ack {
+                received: received_data[0] & 0x01 != 0,
+                power_detector: received_data[0] & 0x02 != 0,
+                retry: ((received_data[0] & 0xf0) >> 4) as usize,
+                length: received - 1,
+            })
+        }
+        
     }
 
     /// Send a data packet without caring for Ack (for broadcast communication).
@@ -495,10 +547,48 @@ impl Crazyradio {
     ///
     ///  * `data`: Up to 32 bytes of data to be send.
     pub fn send_packet_no_ack(&mut self, data: &[u8]) -> Result<()> {
-        self.device_handle
-            .write_bulk(0x01, data, Duration::from_secs(1))?;
+        if self.inline_mode {
+            self.send_inline(data, None)?;
+        } else {
+            self.device_handle
+                .write_bulk(0x01, data, Duration::from_secs(1))?;
+        }
 
         Ok(())
+    }
+
+    fn send_inline(&mut self, data: &[u8], ack_data: Option<&mut [u8]>) -> Result<Ack> {
+        const OUT_HEADER_LENGTH: usize=8;
+        const IN_HEADER_LENGTH: usize = 2;
+
+        // Assemble out command
+        let mut command = vec![];
+        command.push((OUT_HEADER_LENGTH + data.len()) as u8);
+        let mut field2 = self.datarate as u8;
+        if self.ack_enable {
+            field2 |= 0x10;
+        }
+        command.push(field2);
+        command.push(self.channel.into());
+        command.extend_from_slice(&self.address);
+        command.extend_from_slice(&data);
+
+        let mut answer = [0u8; 64];
+        self.device_handle.write_bulk(0x01, &command, Duration::from_secs(1))?;
+        self.device_handle.read_bulk(0x81, &mut answer, Duration::from_secs(1))?;
+
+        // Decode answer
+        let payload_length = (answer[0] as usize) - 2;
+        if let Some(ack_data) = ack_data {
+            ack_data[0..payload_length].copy_from_slice(&answer[IN_HEADER_LENGTH..(IN_HEADER_LENGTH+payload_length)]);
+        }
+
+        Ok(Ack {
+                received: answer[1] & 0x01 != 0,
+                power_detector: answer[1] & 0x02 != 0,
+                retry: ((answer[1] & 0xf0) >> 4) as usize,
+                length: payload_length,
+            })
     }
 }
 
