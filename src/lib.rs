@@ -452,8 +452,8 @@ impl Crazyradio {
 
     /// Set inline-settings USB protocol mode
     /// 
-    /// When this mode is enables, setting channel, datarate, address and
-    /// ack_enable will become cached operation and these settings
+    /// When this mode is enabled, setting channel, datarate, address and
+    /// ack_enable will become cached operations, and these settings
     /// will be sent as header to the data over USB. This increases performance
     /// when communicating with more than one PRX.
     /// 
