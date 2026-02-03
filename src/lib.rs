@@ -561,12 +561,20 @@ impl Crazyradio {
         const OUT_HEADER_LENGTH: usize=8;
         const IN_HEADER_LENGTH: usize = 2;
 
+        const OUT_FIELD2_ACK_ENABLE: u8 = 0x10;
+
+        const IN_HEADER_ACK_RECEIVED: u8 = 0x01;
+        const IN_HEADER_POWER_DETECTOR: u8 = 0x02;
+        const _IN_HEADER_INVALID_SETTING: u8 = 0x04;
+        const IN_HEADER_RETRY_MASK: u8 = 0xf0;
+        const IN_HEADER_RETRY_SHIFT: u8 = 4;
+
         // Assemble out command
         let mut command = vec![];
         command.push((OUT_HEADER_LENGTH + data.len()) as u8);
         let mut field2 = self.datarate as u8;
         if self.ack_enable {
-            field2 |= 0x10;
+            field2 |= OUT_FIELD2_ACK_ENABLE;
         }
         command.push(field2);
         command.push(self.channel.into());
@@ -584,9 +592,9 @@ impl Crazyradio {
         }
 
         Ok(Ack {
-                received: answer[1] & 0x01 != 0,
-                power_detector: answer[1] & 0x02 != 0,
-                retry: ((answer[1] & 0xf0) >> 4) as usize,
+                received: answer[1] & IN_HEADER_ACK_RECEIVED != 0,
+                power_detector: answer[1] & IN_HEADER_POWER_DETECTOR != 0,
+                retry: ((answer[1] & IN_HEADER_RETRY_MASK) >> IN_HEADER_RETRY_SHIFT) as usize,
                 length: payload_length,
             })
     }
