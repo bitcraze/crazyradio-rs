@@ -1,6 +1,6 @@
 [package]
 name = "crazyradio"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Arnaud Taffanel <arnaud@taffanel.org>"]
 edition = "2018"
 description = "Crazyradio USB dongle driver"
@@ -18,12 +18,12 @@ exclude = [
 [dependencies]
 rusb = "0.9.1"
 serde = { version = "1.0", features = ["derive"], optional = true }
-thiserror = "1.0"
-flume = { version = "0.10.4", optional = true, default-features = false }
+thiserror = "2"
+flume = { version = "0.12", optional = true, default-features = false }
 
 [dev-dependencies]
 indicatif = "0.18.3"
-serde_json = "1.0"
+serde_json = "1"
 tokio = { version = "1.6.1", features = ["rt", "rt-multi-thread","macros"] }
 
 [features]
