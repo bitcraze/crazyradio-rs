@@ -3,7 +3,7 @@
 
 use crate::Result;
 use crate::{Ack, Channel, Crazyradio};
-use flume::{bounded, unbounded, Receiver, Sender};
+use flume::{Receiver, Sender, WeakSender, bounded, unbounded};
 
 /// Multi-user threaded Crazyradio
 ///
@@ -112,7 +112,7 @@ impl SharedCrazyradio {
     /// Can return any error the [Crazyradio::send_packet()] can return. This is
     /// mostly USB communication errors if the Crazyradio is disconnected.
     pub fn send_packet(
-        &self,
+        &mut self,
         channel: Channel,
         address: [u8; 5],
         payload: Vec<u8>,
@@ -144,7 +144,7 @@ impl SharedCrazyradio {
     /// Can return any error the [Crazyradio::send_packet_no_ack()] can return. This is
     /// mostly USB communication errors if the Crazyradio is disconnected.
     pub fn send_packet_no_ack(
-        &self,
+        &mut self,
         channel: Channel,
         address: [u8; 5],
         payload: Vec<u8>,
@@ -159,6 +159,18 @@ impl SharedCrazyradio {
             .unwrap();
         Ok(())
     }
+
+    /// Create a weak reference to this SharedCrazyradio.
+    /// 
+    /// The weak reference can be upgraded to a SharedCrazyradio if the radio thread
+    /// is still alive.
+    /// 
+    /// The Radio thread is closed as soon as all SharedCrazyradio instances are dropped.
+    pub fn downgrade(&self) -> WeakSharedCrazyradio {
+        WeakSharedCrazyradio {
+            radio_command: Some(self.radio_command.downgrade()),
+        }
+    }
 }
 
 #[cfg(feature = "async")]
@@ -166,7 +178,7 @@ impl SharedCrazyradio {
 impl SharedCrazyradio {
     /// Async version of `scan()`
     pub async fn scan_async(
-        &self,
+        &mut self,
         start: Channel,
         stop: Channel,
         address: [u8; 5],
@@ -190,7 +202,7 @@ impl SharedCrazyradio {
 
     /// Async version of `send_packet()`
     pub async fn send_packet_async(
-        &self,
+        &mut self,
         channel: Channel,
         address: [u8; 5],
         payload: Vec<u8>,
@@ -220,7 +232,7 @@ impl SharedCrazyradio {
 
     /// Async version of `send_packet_no_ack()`
     pub async fn send_packet_no_ack_async(
-        &self,
+        &mut self,
         channel: Channel,
         address: [u8; 5],
         payload: Vec<u8>,
@@ -260,6 +272,50 @@ impl Clone for SharedCrazyradio {
             scan_res_send,
             scan_res,
         }
+    }
+}
+
+/// A weak reference to a [SharedCrazyradio]
+/// 
+/// Can be upgraded to a [SharedCrazyradio] if the radio thread is still alive.
+/// 
+/// This is useful to make sure the radio usb device is closed as soon as all
+/// `SharedCrazyradio` instances are dropped.
+pub struct WeakSharedCrazyradio {
+    radio_command: Option<WeakSender<RadioCommand>>,
+}
+
+impl Default for WeakSharedCrazyradio {
+    fn default() -> Self {
+        WeakSharedCrazyradio {
+            radio_command: None,
+        }
+    }
+}
+
+impl WeakSharedCrazyradio {
+
+    /// Create a `SharedCrazyradio` from a weak reference.
+    /// 
+    /// Returns `None` if the radio thread has been closed. Otherwise returns
+    /// a new `SharedCrazyradio` instance that can be used to use the radio.
+    pub fn upgrade(&self) -> Option<SharedCrazyradio> {
+        let radio_command = self.radio_command.as_ref()?.upgrade()?;
+
+        // Create new pair of return channels
+        let (send_packet_res_send, send_packet_res) = bounded(1);
+        let (send_packet_no_ack_res_send, send_packet_no_ack_res) = bounded(1);
+        let (scan_res_send, scan_res) = bounded(1);
+
+        Some(SharedCrazyradio {
+            radio_command,
+            send_packet_res_send,
+            send_packet_res,
+            send_packet_no_ack_res_send,
+            send_packet_no_ack_res,
+            scan_res_send,
+            scan_res,
+        })
     }
 }
 

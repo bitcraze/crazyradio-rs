@@ -10,10 +10,12 @@
 //!  - **async** enables async function to create a [Crazyradio] object and use the [SharedCrazyradio]
 //!  - **serde** emables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
 
+#![deny(missing_docs)]
+
 #[cfg(feature = "shared_radio")]
 mod shared_radio;
 #[cfg(feature = "shared_radio")]
-pub use crate::shared_radio::SharedCrazyradio;
+pub use crate::shared_radio::{SharedCrazyradio, WeakSharedCrazyradio};
 
 use core::time::Duration;
 #[cfg(feature = "serde_support")]
@@ -651,14 +653,20 @@ impl Crazyradio {
     }
 }
 
+
+/// Errors returned by Crazyradio functions
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
+    /// USB error returned by the underlying rusb library
     #[error("Usb Error: {0}:?")]
     UsbError(rusb::Error),
+    /// Crazyradio not found
     #[error("Crazyradio not found")]
     NotFound,
+    /// Invalid argument passed to function
     #[error("Invalid arguments")]
     InvalidArgument,
+    /// Crazyradio version not supported
     #[error("Crazyradio version not supported")]
     DongleVersionNotSupported,
 }
@@ -701,6 +709,9 @@ impl<'de> Deserialize<'de> for Channel {
 }
 
 impl Channel {
+    /// Create a Channel from its number (0-125)
+    /// 
+    /// Returns an Error::InvalidArgument if the channel number is out of range
     pub fn from_number(channel: u8) -> Result<Self> {
         if channel < 126 {
             Ok(Channel(channel))
@@ -719,16 +730,23 @@ impl From<Channel> for u8 {
 /// Radio datarate
 #[derive(Copy, Clone, PartialEq)]
 pub enum Datarate {
+    /// 250 kbps
     Dr250K = 0,
+    /// 1 Mbps
     Dr1M = 1,
+    /// 2 Mbps
     Dr2M = 2,
 }
 
 /// Radio power
 pub enum Power {
+    /// -18 dBm
     Pm18dBm = 0,
+    /// -12 dBm
     Pm12dBm = 1,
+    /// -6 dBm
     Pm6dBm = 2,
+    /// 0 dBm
     P0dBm = 3,
 }
 
