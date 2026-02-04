@@ -17,6 +17,9 @@ mod shared_radio;
 #[cfg(feature = "shared_radio")]
 pub use crate::shared_radio::{SharedCrazyradio, WeakSharedCrazyradio};
 
+#[cfg(feature = "wireshark")]
+pub mod capture;
+
 use core::time::Duration;
 #[cfg(feature = "serde_support")]
 use serde::{Deserialize, Serialize};
@@ -138,6 +141,10 @@ pub struct Crazyradio {
     address: [u8; 5],
     datarate: Datarate,
     ack_enable: bool,
+
+    /// Radio index (for capture identification)
+    #[cfg(feature = "wireshark")]
+    radio_index: u8,
 }
 
 impl Crazyradio {
@@ -202,6 +209,9 @@ impl Crazyradio {
             datarate: Datarate::Dr2M,
 
             ack_enable: true,
+
+            #[cfg(feature = "wireshark")]
+            radio_index: nth.unwrap_or(0) as u8,
         };
 
         cr.reset()?;
@@ -513,9 +523,18 @@ impl Crazyradio {
     ///                be truncated. The length of the ack payload is returned
     ///                in Ack::length.
     pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8]) -> Result<Ack> {
+        // Capture TX packet
+        #[cfg(feature = "wireshark")]
+        capture::capture_packet(
+            capture::DIRECTION_TX,
+            self.channel.into(),
+            &self.address,
+            self.radio_index,
+            data,
+        );
 
-        if self.inline_mode {
-            self.send_inline(data, Some(ack_data))
+        let ack = if self.inline_mode {
+            self.send_inline(data, Some(ack_data))?
         } else {
             self.device_handle
                 .write_bulk(0x01, data, Duration::from_secs(1))?;
@@ -533,14 +552,27 @@ impl Crazyradio {
                     .copy_from_slice(&received_data[1..33]);
             }
 
-            Ok(Ack {
+            Ack {
                 received: received_data[0] & 0x01 != 0,
                 power_detector: received_data[0] & 0x02 != 0,
                 retry: ((received_data[0] & 0xf0) >> 4) as usize,
                 length: received - 1,
-            })
+            }
+        };
+
+        // Capture RX packet (ACK payload)
+        #[cfg(feature = "wireshark")]
+        if ack.received && ack.length > 0 {
+            capture::capture_packet(
+                capture::DIRECTION_RX,
+                self.channel.into(),
+                &self.address,
+                self.radio_index,
+                &ack_data[..ack.length],
+            );
         }
-        
+
+        Ok(ack)
     }
 
     /// Send a data packet without caring for Ack (for broadcast communication).
@@ -549,6 +581,16 @@ impl Crazyradio {
     ///
     ///  * `data`: Up to 32 bytes of data to be send.
     pub fn send_packet_no_ack(&mut self, data: &[u8]) -> Result<()> {
+        // Capture TX packet
+        #[cfg(feature = "wireshark")]
+        capture::capture_packet(
+            capture::DIRECTION_TX,
+            self.channel.into(),
+            &self.address,
+            self.radio_index,
+            data,
+        );
+
         if self.inline_mode {
             self.send_inline(data, None)?;
         } else {
