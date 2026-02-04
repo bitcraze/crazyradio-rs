@@ -19,9 +19,9 @@ use flume::{Receiver, Sender, WeakSender, bounded, unbounded};
 /// Usage example:
 /// ``` no_run
 /// let radio = crazyradio::Crazyradio::open_first().unwrap();
-/// let radio_thread = crazyradio::SharedCrazyradio::new(radio);
+/// let mut radio_thread = crazyradio::SharedCrazyradio::new(radio);
 ///
-/// let radio_thread2 = radio_thread.clone();
+/// let mut radio_thread2 = radio_thread.clone();
 ///
 /// std::thread::spawn(move || {
 ///     loop {

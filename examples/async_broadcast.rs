@@ -3,7 +3,7 @@ use crazyradio::{Channel, Crazyradio, SharedCrazyradio};
 #[tokio::main]
 async fn main() -> Result<(), crazyradio::Error> {
     let radio = Crazyradio::open_first_async().await?;
-    let cr = SharedCrazyradio::new(radio);
+    let mut cr = SharedCrazyradio::new(radio);
 
     let channel = Channel::from_number(78).unwrap();
     let address = [0xff, 0xe7, 0xe7, 0xe7, 0xe7];

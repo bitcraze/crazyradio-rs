@@ -3,7 +3,7 @@ use crazyradio::{Channel, Crazyradio, SharedCrazyradio};
 #[tokio::main]
 async fn main() -> Result<(), crazyradio::Error> {
     let radio = Crazyradio::open_first_async().await?;
-    let cr = SharedCrazyradio::new(radio);
+    let mut cr = SharedCrazyradio::new(radio);
 
     println!("Scanning channels from 0 to 125 ...");
     let result = cr
