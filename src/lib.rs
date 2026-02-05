@@ -588,8 +588,12 @@ impl Crazyradio {
         let mut answer = [0u8; 64];
         self.device_handle
             .write_bulk(0x01, &command, Duration::from_secs(1))?;
-        self.device_handle
+        let answer_size = self.device_handle
             .read_bulk(0x81, &mut answer, Duration::from_secs(1))?;
+
+        if (answer_size < IN_HEADER_LENGTH) || ((answer[0] as usize) < answer_size) {
+            return Err(Error::UsbProtocolError("Inline header malformed".to_string()));
+        }
 
         // Decode answer
         let payload_length = (answer[0] as usize) - 2;
@@ -672,6 +676,9 @@ pub enum Error {
     /// Crazyradio version not supported
     #[error("Crazyradio version not supported")]
     DongleVersionNotSupported,
+    /// USB protocol error, for example when receiving an answer of unexpected length
+    #[error("USB protocol error ({0})")]
+    UsbProtocolError(String),
 }
 
 impl From<rusb::Error> for Error {
