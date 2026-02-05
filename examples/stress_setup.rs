@@ -1,5 +1,5 @@
 use crazyradio::{Channel, Crazyradio};
-use indicatif::{ProgressBar, HumanCount};
+use indicatif::{HumanCount, ProgressBar};
 
 fn main() -> Result<(), crazyradio::Error> {
     let mut cr = Crazyradio::open_first()?;
@@ -15,7 +15,7 @@ fn main() -> Result<(), crazyradio::Error> {
 
     let mut i = 0;
     loop {
-        i+=1;
+        i += 1;
         for j in 0..100usize {
             // cr.set_channel(Channel::from_number(0)?)?;
             // cr.set_ack_enable(j.is_multiple_of(2))?;
@@ -29,7 +29,6 @@ fn main() -> Result<(), crazyradio::Error> {
                 let mut ack_data = [0u8; 32];
                 cr.send_packet(&[0xff], &mut ack_data)?;
             }
-            
         }
         pb.set_message(format!("Iterations: {} ({} loops)", i, HumanCount(i * 100)));
         pb.tick();

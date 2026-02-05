@@ -46,8 +46,7 @@ pub struct SharedCrazyradio {
 }
 
 impl SharedCrazyradio {
-
-    /// Create a shared crazyradio. The Shared Crazyradio takes ownership of the 
+    /// Create a shared crazyradio. The Shared Crazyradio takes ownership of the
     /// Crazyradio object to that it is not usable outside anymore.
     ///
     /// Will spawn a thread that service the radio requests. The radio can be
@@ -276,9 +275,9 @@ impl Clone for SharedCrazyradio {
 }
 
 /// A weak reference to a [SharedCrazyradio]
-/// 
+///
 /// Can be upgraded to a [SharedCrazyradio] if the radio thread is still alive.
-/// 
+///
 /// This is useful to make sure the radio usb device is closed as soon as all
 /// `SharedCrazyradio` instances are dropped.
 pub struct WeakSharedCrazyradio {
@@ -294,9 +293,8 @@ impl Default for WeakSharedCrazyradio {
 }
 
 impl WeakSharedCrazyradio {
-
     /// Create a `SharedCrazyradio` from a weak reference.
-    /// 
+    ///
     /// Returns `None` if the radio thread has been closed. Otherwise returns
     /// a new `SharedCrazyradio` instance that can be used to use the radio.
     pub fn upgrade(&self) -> Option<SharedCrazyradio> {
@@ -383,7 +381,7 @@ fn send_packet(
     })
 }
 
-fn send_packet_no_ack (
+fn send_packet_no_ack(
     crazyradio: &mut Crazyradio,
     channel: Channel,
     address: [u8; 5],

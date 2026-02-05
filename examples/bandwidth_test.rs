@@ -18,8 +18,8 @@ fn main() -> Result<(), crazyradio::Error> {
     let crtp_channel = 0;
     let header = ((crtp_port & 0x0F) << 4) | (crtp_channel & 0x0F);
     let payload_size = 28;
-    let packet = vec![header as u8; payload_size+1]; // +1 for header byte
-    
+    let packet = vec![header as u8; payload_size + 1]; // +1 for header byte
+
     let mut n_ack = 0;
     let mut n_syslink = 0;
     let start = Instant::now();
@@ -30,7 +30,7 @@ fn main() -> Result<(), crazyradio::Error> {
         if ack.received {
             n_ack += 1;
 
-            if ack_data.len() > 2 && ack_data[0]&0xFC == 0xF0 {
+            if ack_data.len() > 2 && ack_data[0] & 0xFC == 0xF0 {
                 n_syslink += 1;
             }
         }
@@ -44,8 +44,15 @@ fn main() -> Result<(), crazyradio::Error> {
 
     println!("Sent {} packets in {:.2} seconds", N_PACKETS, seconds);
     println!("Throughput: {:.2} packets/second", pps);
-    println!("Packet success rate: {:.2}%", (n_ack as f64 / N_PACKETS as f64) * 100.0);
-    println!("Syslink packet rate: {:.2}% ({} pk/s)", (n_syslink as f64 / N_PACKETS as f64) * 100.0, (n_syslink as f64 / seconds));
+    println!(
+        "Packet success rate: {:.2}%",
+        (n_ack as f64 / N_PACKETS as f64) * 100.0
+    );
+    println!(
+        "Syslink packet rate: {:.2}% ({} pk/s)",
+        (n_syslink as f64 / N_PACKETS as f64) * 100.0,
+        (n_syslink as f64 / seconds)
+    );
 
     Ok(())
 }
