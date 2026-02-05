@@ -658,7 +658,7 @@ impl Crazyradio {
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum Error {
     /// USB error returned by the underlying rusb library
-    #[error("Usb Error: {0}:?")]
+    #[error("Usb Error: {0:?}")]
     UsbError(rusb::Error),
     /// Crazyradio not found
     #[error("Crazyradio not found")]
