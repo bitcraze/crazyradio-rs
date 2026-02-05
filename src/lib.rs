@@ -594,7 +594,7 @@ impl Crazyradio {
         // The first bye of the answer is the size of the answer
         // The minimum possible answer is 2 bytes [size, header]
         if (answer_size < IN_HEADER_LENGTH) || ((answer[0] as usize) != answer_size) {
-            return Err(Error::UsbProtocolError("Inline header malformed".to_string()));
+            return Err(Error::UsbProtocolError("Inline header from radio malformed, try to update your radio".to_string()));
         }
 
         // Decode answer, at this point we are sure that answer[0] is >= 2
