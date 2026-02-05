@@ -9,6 +9,7 @@
 //!  - **shared_radio** enables [SharedCrazyradio] object that allows to share a radio between threads
 //!  - **async** enables async function to create a [Crazyradio] object and use the [SharedCrazyradio]
 //!  - **serde** emables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
+//!  - **wireshark** enables packet capture to Wireshark
 
 #![deny(missing_docs)]
 
@@ -142,9 +143,9 @@ pub struct Crazyradio {
     datarate: Datarate,
     ack_enable: bool,
 
-    /// Radio index (for capture identification)
+    /// Radio serial number (for capture identification)
     #[cfg(feature = "wireshark")]
-    radio_index: u8,
+    serial: String,
 }
 
 impl Crazyradio {
@@ -197,6 +198,9 @@ impl Crazyradio {
             return Err(Error::DongleVersionNotSupported);
         }
 
+        #[cfg(feature = "wireshark")]
+        let serial = get_serial(&device_desciptor, &device_handle).unwrap_or_default();
+
         let mut cr = Crazyradio {
             device_desciptor,
             device_handle,
@@ -211,7 +215,7 @@ impl Crazyradio {
             ack_enable: true,
 
             #[cfg(feature = "wireshark")]
-            radio_index: nth.unwrap_or(0) as u8,
+            serial,
         };
 
         cr.reset()?;
@@ -533,7 +537,7 @@ impl Crazyradio {
             capture::DIRECTION_TX,
             self.channel.into(),
             &self.address,
-            self.radio_index,
+            &self.serial,
             data,
         );
 
@@ -571,8 +575,8 @@ impl Crazyradio {
                 capture::DIRECTION_RX,
                 self.channel.into(),
                 &self.address,
-                self.radio_index,
-                &ack_data[..ack.length],
+                &self.serial,
+                &ack_data[..ack.length.min(ack_data.len())],
             );
         }
 
@@ -591,7 +595,7 @@ impl Crazyradio {
             capture::DIRECTION_TX,
             self.channel.into(),
             &self.address,
-            self.radio_index,
+            &self.serial,
             data,
         );
 
