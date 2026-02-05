@@ -3,7 +3,7 @@
 
 use crate::Result;
 use crate::{Ack, Channel, Crazyradio};
-use flume::{Receiver, Sender, WeakSender, bounded, unbounded};
+use flume::{bounded, unbounded, Receiver, Sender, WeakSender};
 
 /// Multi-user threaded Crazyradio
 ///
@@ -160,10 +160,10 @@ impl SharedCrazyradio {
     }
 
     /// Create a weak reference to this SharedCrazyradio.
-    /// 
+    ///
     /// The weak reference can be upgraded to a SharedCrazyradio if the radio thread
     /// is still alive.
-    /// 
+    ///
     /// The Radio thread is closed as soon as all SharedCrazyradio instances are dropped.
     pub fn downgrade(&self) -> WeakSharedCrazyradio {
         WeakSharedCrazyradio {
