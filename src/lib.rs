@@ -453,15 +453,15 @@ impl Crazyradio {
     }
 
     /// Set inline-settings USB protocol mode
-    /// 
+    ///
     /// When this mode is enabled, setting channel, datarate, address and
     /// ack_enable will become cached operations, and these settings
     /// will be sent as header to the data over USB. This increases performance
     /// when communicating with more than one PRX.
-    /// 
+    ///
     /// This mode, if available, is activated by default when creating the Crazyradio
     /// object.
-    /// 
+    ///
     /// This mode is only available with Crazyradio 2.0+
     pub fn set_inline_mode(&mut self, inline_mode_enable: bool) -> Result<()> {
         let setting = inline_mode_enable.then_some(1).unwrap_or(0);
@@ -480,8 +480,12 @@ impl Crazyradio {
     }
 
     /// Set packet loss simulation.
-    /// 
-    pub fn set_packet_loss_simulation(&mut self, packet_loss_percent: u8, ack_loss_percent: u8) -> Result<()> {
+    ///
+    pub fn set_packet_loss_simulation(
+        &mut self,
+        packet_loss_percent: u8,
+        ack_loss_percent: u8,
+    ) -> Result<()> {
         if self.device_desciptor.device_version() < rusb::Version::from_bcd(0x0500) {
             return Err(Error::DongleVersionNotSupported);
         }
@@ -513,7 +517,6 @@ impl Crazyradio {
     ///                be truncated. The length of the ack payload is returned
     ///                in Ack::length.
     pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8]) -> Result<Ack> {
-
         if self.inline_mode {
             self.send_inline(data, Some(ack_data))
         } else {
@@ -540,7 +543,6 @@ impl Crazyradio {
                 length: received - 1,
             })
         }
-        
     }
 
     /// Send a data packet without caring for Ack (for broadcast communication).
@@ -560,7 +562,7 @@ impl Crazyradio {
     }
 
     fn send_inline(&mut self, data: &[u8], ack_data: Option<&mut [u8]>) -> Result<Ack> {
-        const OUT_HEADER_LENGTH: usize=8;
+        const OUT_HEADER_LENGTH: usize = 8;
         const IN_HEADER_LENGTH: usize = 2;
 
         const OUT_FIELD2_ACK_ENABLE: u8 = 0x10;
@@ -584,21 +586,24 @@ impl Crazyradio {
         command.extend_from_slice(&data);
 
         let mut answer = [0u8; 64];
-        self.device_handle.write_bulk(0x01, &command, Duration::from_secs(1))?;
-        self.device_handle.read_bulk(0x81, &mut answer, Duration::from_secs(1))?;
+        self.device_handle
+            .write_bulk(0x01, &command, Duration::from_secs(1))?;
+        self.device_handle
+            .read_bulk(0x81, &mut answer, Duration::from_secs(1))?;
 
         // Decode answer
         let payload_length = (answer[0] as usize) - 2;
         if let Some(ack_data) = ack_data {
-            ack_data[0..payload_length].copy_from_slice(&answer[IN_HEADER_LENGTH..(IN_HEADER_LENGTH+payload_length)]);
+            ack_data[0..payload_length]
+                .copy_from_slice(&answer[IN_HEADER_LENGTH..(IN_HEADER_LENGTH + payload_length)]);
         }
 
         Ok(Ack {
-                received: answer[1] & IN_HEADER_ACK_RECEIVED != 0,
-                power_detector: answer[1] & IN_HEADER_POWER_DETECTOR != 0,
-                retry: ((answer[1] & IN_HEADER_RETRY_MASK) >> IN_HEADER_RETRY_SHIFT) as usize,
-                length: payload_length,
-            })
+            received: answer[1] & IN_HEADER_ACK_RECEIVED != 0,
+            power_detector: answer[1] & IN_HEADER_POWER_DETECTOR != 0,
+            retry: ((answer[1] & IN_HEADER_RETRY_MASK) >> IN_HEADER_RETRY_SHIFT) as usize,
+            length: payload_length,
+        })
     }
 }
 
@@ -613,7 +618,6 @@ impl Crazyradio {
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl Crazyradio {
-
     /// Async vesion of [Crazyradio::open_first()]
     pub async fn open_first_async() -> Result<Self> {
         let (tx, rx) = flume::bounded(0);
@@ -652,7 +656,6 @@ impl Crazyradio {
         rx.recv_async().await.unwrap()
     }
 }
-
 
 /// Errors returned by Crazyradio functions
 #[derive(thiserror::Error, Debug, Clone)]
@@ -710,7 +713,7 @@ impl<'de> Deserialize<'de> for Channel {
 
 impl Channel {
     /// Create a Channel from its number (0-125)
-    /// 
+    ///
     /// Returns an Error::InvalidArgument if the channel number is out of range
     pub fn from_number(channel: u8) -> Result<Self> {
         if channel < 126 {
