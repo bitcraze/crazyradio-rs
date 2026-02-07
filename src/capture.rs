@@ -34,7 +34,9 @@ static CAPTURE_CALLBACK: OnceLock<CaptureCallback> = OnceLock::new();
 /// Set the packet capture callback
 ///
 /// This should be called once at initialization to enable packet capture.
-/// Subsequent calls will be silently ignored.
+/// Subsequent calls will be silently ignored. Note that since this is in the
+/// direct path of shuffling packages to/from the Crazyradio, the callback
+/// should be efficient and avoid blocking operations.
 pub fn set_callback(callback: CaptureCallback) {
     let _ = CAPTURE_CALLBACK.set(callback);
 }
