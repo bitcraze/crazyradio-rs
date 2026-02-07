@@ -30,7 +30,7 @@ tokio = { version = "1.6.1", features = ["rt", "rt-multi-thread","macros"] }
 serde_support = ["serde"]
 shared_radio = ["flume"]
 async = ["flume/async"]
-wireshark = []
+packet_capture = []
 
 [package.metadata.docs.rs]
 all-features = true

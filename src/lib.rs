@@ -9,7 +9,7 @@
 //!  - **shared_radio** enables [SharedCrazyradio] object that allows to share a radio between threads
 //!  - **async** enables async function to create a [Crazyradio] object and use the [SharedCrazyradio]
 //!  - **serde** emables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
-//!  - **wireshark** enables packet capture to Wireshark
+//!  - **packet_capture** enables functionality to capture packets by registering a callback which is called for each in/out packet
 
 #![deny(missing_docs)]
 
@@ -18,7 +18,7 @@ mod shared_radio;
 #[cfg(feature = "shared_radio")]
 pub use crate::shared_radio::{SharedCrazyradio, WeakSharedCrazyradio};
 
-#[cfg(feature = "wireshark")]
+#[cfg(feature = "packet_capture")]
 pub mod capture;
 
 use core::time::Duration;
@@ -144,7 +144,7 @@ pub struct Crazyradio {
     ack_enable: bool,
 
     /// Radio serial number (for capture identification)
-    #[cfg(feature = "wireshark")]
+    #[cfg(feature = "packet_capture")]
     serial: String,
 }
 
@@ -198,7 +198,7 @@ impl Crazyradio {
             return Err(Error::DongleVersionNotSupported);
         }
 
-        #[cfg(feature = "wireshark")]
+        #[cfg(feature = "packet_capture")]
         let serial = get_serial(&device_desciptor, &device_handle).unwrap_or_default();
 
         let mut cr = Crazyradio {
@@ -214,7 +214,7 @@ impl Crazyradio {
 
             ack_enable: true,
 
-            #[cfg(feature = "wireshark")]
+            #[cfg(feature = "packet_capture")]
             serial,
         };
 
@@ -532,7 +532,7 @@ impl Crazyradio {
     ///                in Ack::length.
     pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8]) -> Result<Ack> {
         // Capture TX packet
-        #[cfg(feature = "wireshark")]
+        #[cfg(feature = "packet_capture")]
         capture::capture_packet(
             capture::DIRECTION_TX,
             self.channel.into(),
@@ -569,7 +569,7 @@ impl Crazyradio {
         };
 
         // Capture RX packet (ACK payload)
-        #[cfg(feature = "wireshark")]
+        #[cfg(feature = "packet_capture")]
         if ack.received && ack.length > 0 {
             capture::capture_packet(
                 capture::DIRECTION_RX,
@@ -590,7 +590,7 @@ impl Crazyradio {
     ///  * `data`: Up to 32 bytes of data to be send.
     pub fn send_packet_no_ack(&mut self, data: &[u8]) -> Result<()> {
         // Capture TX packet
-        #[cfg(feature = "wireshark")]
+        #[cfg(feature = "packet_capture")]
         capture::capture_packet(
             capture::DIRECTION_TX,
             self.channel.into(),
