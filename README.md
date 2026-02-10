@@ -32,6 +32,8 @@ can be used to share a radio dongle between threads.
 The feature `async` enables async functions in the `SharedRadio` struct as well
 as to create the `Crazyradio` struct.
 
+The feature `packet_capture` enables packet capturing to Wireshark.
+
 ## Serde support
 
 To enable Serde support for serializing and deserializing ```Channels```, enable the feature "serde_support".

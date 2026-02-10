@@ -9,6 +9,7 @@
 //!  - **shared_radio** enables [SharedCrazyradio] object that allows to share a radio between threads
 //!  - **async** enables async function to create a [Crazyradio] object and use the [SharedCrazyradio]
 //!  - **serde** emables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
+//!  - **packet_capture** enables functionality to capture packets by registering a callback which is called for each in/out packet
 
 #![deny(missing_docs)]
 
@@ -16,6 +17,9 @@
 mod shared_radio;
 #[cfg(feature = "shared_radio")]
 pub use crate::shared_radio::{SharedCrazyradio, WeakSharedCrazyradio};
+
+#[cfg(feature = "packet_capture")]
+pub mod capture;
 
 use core::time::Duration;
 #[cfg(feature = "serde_support")]
@@ -138,6 +142,10 @@ pub struct Crazyradio {
     address: [u8; 5],
     datarate: Datarate,
     ack_enable: bool,
+
+    /// Radio serial number (for capture identification)
+    #[cfg(feature = "packet_capture")]
+    serial: String,
 }
 
 impl Crazyradio {
@@ -190,6 +198,9 @@ impl Crazyradio {
             return Err(Error::DongleVersionNotSupported);
         }
 
+        #[cfg(feature = "packet_capture")]
+        let serial = get_serial(&device_desciptor, &device_handle).unwrap_or_default();
+
         let mut cr = Crazyradio {
             device_desciptor,
             device_handle,
@@ -202,6 +213,9 @@ impl Crazyradio {
             datarate: Datarate::Dr2M,
 
             ack_enable: true,
+
+            #[cfg(feature = "packet_capture")]
+            serial,
         };
 
         cr.reset()?;
@@ -517,8 +531,18 @@ impl Crazyradio {
     ///                be truncated. The length of the ack payload is returned
     ///                in Ack::length.
     pub fn send_packet(&mut self, data: &[u8], ack_data: &mut [u8]) -> Result<Ack> {
-        if self.inline_mode {
-            self.send_inline(data, Some(ack_data))
+        // Capture TX packet
+        #[cfg(feature = "packet_capture")]
+        capture::capture_packet(
+            capture::DIRECTION_TX,
+            self.channel.into(),
+            &self.address,
+            &self.serial,
+            data,
+        );
+
+        let ack = if self.inline_mode {
+            self.send_inline(data, Some(ack_data))?
         } else {
             self.device_handle
                 .write_bulk(0x01, data, Duration::from_secs(1))?;
@@ -536,13 +560,27 @@ impl Crazyradio {
                     .copy_from_slice(&received_data[1..33]);
             }
 
-            Ok(Ack {
+            Ack {
                 received: received_data[0] & 0x01 != 0,
                 power_detector: received_data[0] & 0x02 != 0,
                 retry: ((received_data[0] & 0xf0) >> 4) as usize,
                 length: received - 1,
-            })
+            }
+        };
+
+        // Capture RX packet (ACK payload)
+        #[cfg(feature = "packet_capture")]
+        if ack.received && ack.length > 0 {
+            capture::capture_packet(
+                capture::DIRECTION_RX,
+                self.channel.into(),
+                &self.address,
+                &self.serial,
+                &ack_data[..ack.length.min(ack_data.len())],
+            );
         }
+
+        Ok(ack)
     }
 
     /// Send a data packet without caring for Ack (for broadcast communication).
@@ -551,6 +589,16 @@ impl Crazyradio {
     ///
     ///  * `data`: Up to 32 bytes of data to be send.
     pub fn send_packet_no_ack(&mut self, data: &[u8]) -> Result<()> {
+        // Capture TX packet
+        #[cfg(feature = "packet_capture")]
+        capture::capture_packet(
+            capture::DIRECTION_TX,
+            self.channel.into(),
+            &self.address,
+            &self.serial,
+            data,
+        );
+
         if self.inline_mode {
             self.send_inline(data, None)?;
         } else {
