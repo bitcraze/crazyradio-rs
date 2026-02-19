@@ -131,8 +131,8 @@ impl SharedCrazyradio {
             Ack {
                 received: result.acked,
                 length: result.payload.len(),
-                power_detector: false,
-                retry: 0,
+                power_detector: result.power_detector,
+                retry: result.retry,
             },
             result.payload,
         ))
@@ -222,8 +222,8 @@ impl SharedCrazyradio {
             Ack {
                 received: result.acked,
                 length: result.payload.len(),
-                power_detector: false,
-                retry: 0,
+                power_detector: result.power_detector,
+                retry: result.retry,
             },
             result.payload,
         ))
@@ -342,6 +342,8 @@ enum RadioCommand {
 struct SendPacketResult {
     acked: bool,
     payload: Vec<u8>,
+    retry: usize,
+    power_detector: bool,
 }
 struct ScanResult {
     found: Vec<Channel>,
@@ -378,6 +380,8 @@ fn send_packet(
     Ok(SendPacketResult {
         acked: ack.received,
         payload: ack_data,
+        retry: ack.retry,
+        power_detector: ack.power_detector,
     })
 }
 
