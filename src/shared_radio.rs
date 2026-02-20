@@ -133,6 +133,7 @@ impl SharedCrazyradio {
                 length: result.payload.len(),
                 power_detector: result.power_detector,
                 retry: result.retry,
+                rssi_dbm: result.rssi_dbm,
             },
             result.payload,
         ))
@@ -224,6 +225,7 @@ impl SharedCrazyradio {
                 length: result.payload.len(),
                 power_detector: result.power_detector,
                 retry: result.retry,
+                rssi_dbm: result.rssi_dbm,
             },
             result.payload,
         ))
@@ -344,6 +346,7 @@ struct SendPacketResult {
     payload: Vec<u8>,
     retry: usize,
     power_detector: bool,
+    rssi_dbm: Option<u8>,
 }
 struct ScanResult {
     found: Vec<Channel>,
@@ -382,6 +385,7 @@ fn send_packet(
         payload: ack_data,
         retry: ack.retry,
         power_detector: ack.power_detector,
+        rssi_dbm: ack.rssi_dbm,
     })
 }
 
