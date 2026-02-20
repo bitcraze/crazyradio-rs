@@ -104,6 +104,31 @@ enum UsbCommand {
     LaunchBootloader = 0xff,
 }
 
+/// Inline mode setting for USB protocol
+#[repr(u16)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum InlineMode {
+    /// Inline mode disabled, all settings are set by control USB messages
+    Off = 0,
+    /// Inline mode enabled, channel, datarate, address and ack_enable are sent as header to the data in USB bulk messages
+    On = 1,
+    /// Inline mode enabled with RSSI, same as On but the returned ack header also contains the RSSI value of the received packet (if any)
+    OnWithRssi = 2,
+}
+
+impl InlineMode {
+    /// Returns `true` if the inline mode is on.
+    pub fn is_on(&self) -> bool {
+        matches!(self, InlineMode::On | InlineMode::OnWithRssi)
+    }
+
+    /// Returns `true` if the inline mode is off.
+    pub fn is_off(&self) -> bool {
+        matches!(self, InlineMode::Off)
+    }
+}
+
+
 /// Represents a Crazyradio
 ///
 /// Holds the USB connection to a Crazyradio dongle.
@@ -135,7 +160,7 @@ pub struct Crazyradio {
     device_handle: rusb::DeviceHandle<rusb::GlobalContext>,
 
     cache_settings: bool,
-    inline_mode: bool,
+    inline_mode: InlineMode,
 
     // Settings cache
     channel: Channel,
@@ -206,7 +231,7 @@ impl Crazyradio {
             device_handle,
 
             cache_settings: true,
-            inline_mode: false,
+            inline_mode: InlineMode::Off,
 
             channel: Channel::from_number(2).unwrap(),
             address: [0xe7; 5],
@@ -243,7 +268,9 @@ impl Crazyradio {
         self.cache_settings = false;
 
         // Try to set inline mode, ignore failure as this is not fatal (old radio FW do not implement it and will just be slower)
-        _ = self.set_inline_mode(true);
+        // We set it on first and then with rssi, this way the dongle is set to the maximum inline mode supported
+        _ = self.set_inline_mode(InlineMode::On);
+        _ = self.set_inline_mode(InlineMode::OnWithRssi);
 
         self.set_datarate(Datarate::Dr2M)?;
         self.set_channel(Channel::from_number(2).unwrap())?;
@@ -273,7 +300,7 @@ impl Crazyradio {
 
     /// Set the radio channel.
     pub fn set_channel(&mut self, channel: Channel) -> Result<()> {
-        if !self.inline_mode && (!self.cache_settings || self.channel != channel) {
+        if self.inline_mode.is_off() && (!self.cache_settings || self.channel != channel) {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetRadioChannel as u8,
@@ -291,7 +318,7 @@ impl Crazyradio {
 
     /// Set the datarate.
     pub fn set_datarate(&mut self, datarate: Datarate) -> Result<()> {
-        if !self.inline_mode && (!self.cache_settings || self.datarate != datarate) {
+        if self.inline_mode.is_off() && (!self.cache_settings || self.datarate != datarate) {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetDataRate as u8,
@@ -309,7 +336,7 @@ impl Crazyradio {
 
     /// Set the radio address.
     pub fn set_address(&mut self, address: &[u8; 5]) -> Result<()> {
-        if !self.inline_mode && (!self.cache_settings || self.address != *address) {
+        if self.inline_mode.is_off() && (!self.cache_settings || self.address != *address) {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::SetRadioAddress as u8,
@@ -320,7 +347,7 @@ impl Crazyradio {
             )?;
         }
 
-        if self.cache_settings || self.inline_mode {
+        if self.cache_settings || self.inline_mode.is_on() {
             self.address.copy_from_slice(address);
         }
 
@@ -397,7 +424,7 @@ impl Crazyradio {
     ///
     /// Should be disabled when sending broadcast packets.
     pub fn set_ack_enable(&mut self, ack_enable: bool) -> Result<()> {
-        if !self.inline_mode && ack_enable != self.ack_enable {
+        if self.inline_mode.is_off() && ack_enable != self.ack_enable {
             self.device_handle.write_control(
                 0x40,
                 UsbCommand::AckEnable as u8,
@@ -477,8 +504,8 @@ impl Crazyradio {
     /// object.
     ///
     /// This mode is only available with Crazyradio 2.0+
-    pub fn set_inline_mode(&mut self, inline_mode_enable: bool) -> Result<()> {
-        let setting = inline_mode_enable.then_some(1).unwrap_or(0);
+    pub fn set_inline_mode(&mut self, mode: InlineMode) -> Result<()> {
+        let setting = mode as u16;
 
         self.device_handle.write_control(
             0x40,
@@ -488,7 +515,7 @@ impl Crazyradio {
             &[],
             Duration::from_secs(1),
         )?;
-        self.inline_mode = inline_mode_enable;
+        self.inline_mode = mode;
 
         Ok(())
     }
@@ -541,7 +568,7 @@ impl Crazyradio {
             data,
         );
 
-        let ack = if self.inline_mode {
+        let ack = if self.inline_mode.is_on() {
             self.send_inline(data, Some(ack_data))?
         } else {
             self.device_handle
@@ -565,6 +592,7 @@ impl Crazyradio {
                 power_detector: received_data[0] & 0x02 != 0,
                 retry: ((received_data[0] & 0xf0) >> 4) as usize,
                 length: received - 1,
+                rssi_dbm: None,
             }
         };
 
@@ -599,7 +627,7 @@ impl Crazyradio {
             data,
         );
 
-        if self.inline_mode {
+        if self.inline_mode.is_on() {
             self.send_inline(data, None)?;
         } else {
             self.device_handle
@@ -612,6 +640,7 @@ impl Crazyradio {
     fn send_inline(&mut self, data: &[u8], ack_data: Option<&mut [u8]>) -> Result<Ack> {
         const OUT_HEADER_LENGTH: usize = 8;
         const IN_HEADER_LENGTH: usize = 2;
+        const IN_HEADER_RSSI_LENGTH: usize = 3;
 
         const OUT_FIELD2_ACK_ENABLE: u8 = 0x10;
 
@@ -639,17 +668,30 @@ impl Crazyradio {
         let answer_size = self.device_handle
             .read_bulk(0x81, &mut answer, Duration::from_secs(1))?;
 
+        let header_length = match self.inline_mode {
+            InlineMode::On => IN_HEADER_LENGTH,
+            InlineMode::OnWithRssi => IN_HEADER_RSSI_LENGTH,
+            InlineMode::Off => unreachable!(),
+        };
         // The first bye of the answer is the size of the answer
         // The minimum possible answer is 2 bytes [size, header]
-        if (answer_size < IN_HEADER_LENGTH) || ((answer[0] as usize) != answer_size) {
+        if (answer_size < header_length) || ((answer[0] as usize) != answer_size) {
+            dbg!(&answer[..answer_size]);
             return Err(Error::UsbProtocolError("Inline header from radio malformed, try to update your radio".to_string()));
         }
 
+        // Decode RSSI value if available
+        let rssi_dbm = if self.inline_mode == InlineMode::OnWithRssi {
+            Some(answer[2])
+        } else {
+            None
+        };
+
         // Decode answer, at this point we are sure that answer[0] is >= 2
-        let payload_length = (answer[0] as usize) - 2;
+        let payload_length = (answer[0] as usize) - header_length;
         if let Some(ack_data) = ack_data {
             ack_data[0..payload_length]
-                .copy_from_slice(&answer[IN_HEADER_LENGTH..(IN_HEADER_LENGTH + payload_length)]);
+                .copy_from_slice(&answer[header_length..(header_length + payload_length)]);
         }
 
         Ok(Ack {
@@ -657,6 +699,7 @@ impl Crazyradio {
             power_detector: answer[1] & IN_HEADER_POWER_DETECTOR != 0,
             retry: ((answer[1] & IN_HEADER_RETRY_MASK) >> IN_HEADER_RETRY_SHIFT) as usize,
             length: payload_length,
+            rssi_dbm,
         })
     }
 }
@@ -738,6 +781,8 @@ impl From<rusb::Error> for Error {
 }
 
 /// Ack status of a sent packet
+/// 
+/// This struct contains information gathered by the radio about the transaction and the received ack packet (if any).
 #[derive(Debug, Copy, Clone)]
 pub struct Ack {
     /// At true if an ack packet has been received
@@ -748,6 +793,10 @@ pub struct Ack {
     pub retry: usize,
     /// Length of the ack payload
     pub length: usize,
+    /// RSSI dbm value  of the received ack packet. This is the raw value from the radio, it is inverted so -60dBm is encoded as 60.
+    /// This is a measurement of the radio dongle of how strong the ack packet was received.
+    /// This field is only available if the radio is set in InlineMode::OnWithRssi (default at value) and the radio firmware supports it (Crazyradio 2.0 with Fw >= 5.3).
+    pub rssi_dbm: Option<u8>,
 }
 
 /// Radio channel
