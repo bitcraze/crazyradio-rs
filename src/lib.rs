@@ -649,6 +649,8 @@ impl Crazyradio {
         const _IN_HEADER_INVALID_SETTING: u8 = 0x04;
         const IN_HEADER_RETRY_MASK: u8 = 0xf0;
         const IN_HEADER_RETRY_SHIFT: u8 = 4;
+        
+        const IN_HEADER_RSSI: usize = 2;
 
         // Assemble out command
         let mut command = vec![];
@@ -673,16 +675,17 @@ impl Crazyradio {
             InlineMode::OnWithRssi => IN_HEADER_RSSI_LENGTH,
             InlineMode::Off => unreachable!(),
         };
-        // The first bye of the answer is the size of the answer
+        // The first byte of the answer is the size of the answer
         // The minimum possible answer is 2 bytes [size, header]
         if (answer_size < header_length) || ((answer[0] as usize) != answer_size) {
-            dbg!(&answer[..answer_size]);
             return Err(Error::UsbProtocolError("Inline header from radio malformed, try to update your radio".to_string()));
         }
 
+        let ack_received = answer[1] & IN_HEADER_ACK_RECEIVED != 0;
+
         // Decode RSSI value if available
-        let rssi_dbm = if self.inline_mode == InlineMode::OnWithRssi {
-            Some(answer[2])
+        let rssi_dbm = if self.inline_mode == InlineMode::OnWithRssi && ack_received {
+            Some(answer[IN_HEADER_RSSI])
         } else {
             None
         };
@@ -695,7 +698,7 @@ impl Crazyradio {
         }
 
         Ok(Ack {
-            received: answer[1] & IN_HEADER_ACK_RECEIVED != 0,
+            received: ack_received,
             power_detector: answer[1] & IN_HEADER_POWER_DETECTOR != 0,
             retry: ((answer[1] & IN_HEADER_RETRY_MASK) >> IN_HEADER_RETRY_SHIFT) as usize,
             length: payload_length,

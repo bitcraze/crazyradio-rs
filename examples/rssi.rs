@@ -36,7 +36,7 @@ fn main() -> Result<(), crazyradio::Error> {
                 let rssi_str = match ack.rssi_dbm {
                     // rssi_dbm is inverted: -60dBm is encoded as 60
                     Some(raw) => format!("-{} dBm", raw),
-                    None => "N/A (requires CR2 fw >= 5.3)".to_string(),
+                    None => "None".to_string(),
                 };
                 println!(
                     "{:?}   | {:26} | {:7} | {}",
