@@ -714,6 +714,40 @@ impl Crazyradio {
         }))
     }
 
+    /// Send a broadcast (no-ack) packet while in sniffer mode.
+    ///
+    /// The packet is sent using the current channel, datarate, and pipe-0
+    /// address. The radio briefly leaves RX mode during TX (~1ms), so
+    /// incoming packets during this window will be missed.
+    ///
+    /// No response is sent on the IN endpoint.
+    ///
+    /// # Arguments
+    ///
+    ///  * `data`: 1 to 32 bytes of raw ESB payload to broadcast.
+    pub fn send_sniffer_broadcast(&mut self, data: &[u8]) -> Result<()> {
+        if !self.sniffer_mode {
+            return Err(Error::InvalidArgument);
+        }
+        if data.is_empty() || data.len() > 32 {
+            return Err(Error::InvalidArgument);
+        }
+
+        #[cfg(feature = "packet_capture")]
+        capture::capture_packet(
+            capture::DIRECTION_TX,
+            self.channel.into(),
+            &self.address,
+            &self.serial,
+            data,
+        );
+
+        self.device_handle
+            .write_bulk(0x01, data, Duration::from_secs(1))?;
+
+        Ok(())
+    }
+
     /// Send a data packet and receive an ack packet.
     ///
     /// # Arguments

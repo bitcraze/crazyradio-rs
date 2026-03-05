@@ -13,6 +13,11 @@ fn main() -> Result<(), crazyradio::Error> {
     println!("Entering sniffer mode on channel 80, 2Mbps ...");
     cr.enter_sniffer_mode()?;
 
+    // Send a broadcast packet (no-ack) in sniffer mode.
+    // This transmits using the current channel, datarate, and pipe-0 address.
+    cr.send_sniffer_broadcast(&[0xff])?;
+    println!("Sent broadcast packet");
+
     let mut payload = [0u8; 32];
     loop {
         match cr.receive_sniffer_packet(&mut payload, Duration::from_secs(1))? {
