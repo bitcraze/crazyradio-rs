@@ -7,7 +7,7 @@
 //!
 //! Available Cargo features:
 //!  - **shared_radio** enables [SharedCrazyradio] object that allows to share a radio between threads
-//!  - **async** enables async function to create a [Crazyradio] object and use the [SharedCrazyradio]
+//!  - **async** enables async function to create a [Crazyradio] object, use the [SharedCrazyradio], and enter async sniffer mode via [`Crazyradio::enter_sniffer_mode_async`]
 //!  - **serde** emables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
 //!  - **packet_capture** enables functionality to capture packets by registering a callback which is called for each in/out packet
 
@@ -21,7 +21,13 @@ pub use crate::shared_radio::{SharedCrazyradio, WeakSharedCrazyradio};
 #[cfg(feature = "packet_capture")]
 pub mod capture;
 
+#[cfg(feature = "async")]
+mod async_sniffer;
+#[cfg(feature = "async")]
+pub use crate::async_sniffer::{ReceivedSnifferPacket, SnifferReceiver, SnifferSender};
+
 use core::time::Duration;
+use std::sync::Arc;
 #[cfg(feature = "serde_support")]
 use serde::{Deserialize, Serialize};
 
@@ -159,7 +165,7 @@ impl InlineMode {
 /// ```
 pub struct Crazyradio {
     device_desciptor: rusb::DeviceDescriptor,
-    device_handle: rusb::DeviceHandle<rusb::GlobalContext>,
+    device_handle: Arc<rusb::DeviceHandle<rusb::GlobalContext>>,
 
     cache_settings: bool,
     inline_mode: InlineMode,
@@ -213,7 +219,7 @@ impl Crazyradio {
         let device = find_crazyradio(nth, serial)?;
 
         let device_desciptor = device.device_descriptor()?;
-        let device_handle = device.open()?;
+        let device_handle = Arc::new(device.open()?);
 
         device_handle.claim_interface(0)?;
 
@@ -967,6 +973,19 @@ impl Crazyradio {
 
         rx.recv_async().await.unwrap()
     }
+
+    /// Enter sniffer mode and return async receiver/sender handles.
+    ///
+    /// Consumes the `Crazyradio` and returns a `(SnifferReceiver, SnifferSender)` pair.
+    /// The receiver yields sniffed packets and is not `Clone` (single owner).
+    /// The sender can be cloned and used to send broadcast packets concurrently.
+    ///
+    /// Use [`SnifferReceiver::close`] to exit sniffer mode and recover the `Crazyradio`.
+    pub async fn enter_sniffer_mode_async(
+        self,
+    ) -> Result<(SnifferReceiver, SnifferSender)> {
+        async_sniffer::enter_sniffer_mode_async(self).await
+    }
 }
 
 /// Errors returned by Crazyradio functions
@@ -987,6 +1006,9 @@ pub enum Error {
     /// USB protocol error, for example when receiving an answer of unexpected length
     #[error("USB protocol error ({0})")]
     UsbProtocolError(String),
+    /// Sniffer session has been closed
+    #[error("Sniffer session closed")]
+    SnifferSessionClosed,
 }
 
 impl From<rusb::Error> for Error {
