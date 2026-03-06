@@ -23,7 +23,7 @@ fn main() -> Result<(), crazyradio::Error> {
         match cr.receive_sniffer_packet(&mut payload, Duration::from_secs(1))? {
             Some(pkt) => {
                 println!(
-                    "pipe:{} rssi:-{}dBm ts:{}us len:{} data:{:02x?}",
+                    "pipe:{} rssi:{}dBm ts:{}us len:{} data:{:02x?}",
                     pkt.pipe,
                     pkt.rssi_dbm,
                     pkt.timestamp_us,

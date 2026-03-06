@@ -6,7 +6,7 @@ async fn main() -> Result<(), crazyradio::Error> {
     let mut cr = Crazyradio::open_nth_async(1).await?;
 
     // Configure radio parameters before entering sniffer mode
-    cr.set_channel(Channel::from_number(70)?)?;
+    cr.set_channel(Channel::from_number(80)?)?;
     cr.set_datarate(Datarate::Dr2M)?;
     cr.set_address(&[0xe7, 0xe7, 0xe7, 0xe7, 0xe7])?;
 
@@ -21,7 +21,7 @@ async fn main() -> Result<(), crazyradio::Error> {
         match receiver.recv().await {
             Some(Ok(pkt)) => {
                 println!(
-                    "pipe:{} rssi:-{}dBm ts:{}us len:{} data:{:02x?}",
+                    "pipe:{} rssi:{}dBm ts:{}us len:{} data:{:02x?}",
                     pkt.pipe,
                     pkt.rssi_dbm,
                     pkt.timestamp_us,

@@ -9,8 +9,8 @@ use crate::{Crazyradio, Error, Result, UsbCommand};
 /// A packet received in async sniffer mode, with owned payload.
 #[derive(Debug, Clone)]
 pub struct ReceivedSnifferPacket {
-    /// RSSI in inverted dBm (e.g. 60 means −60 dBm)
-    pub rssi_dbm: u8,
+    /// RSSI in dBm (negative, e.g. -60 means -60 dBm)
+    pub rssi_dbm: i16,
     /// Pipe index the packet was received on (0 or 1)
     pub pipe: u8,
     /// Timestamp in microseconds (wraps every ~71 minutes)

@@ -2,12 +2,19 @@
 
 //! # Crazyradio driver for Rust
 //!
-//! This crate aims at providing a Rust API for the [Crazyradio](https://www.bitcraze.io/products/crazyradio-pa/)
-//! USB Dongle.
+//! This crate provides a **radio hardware abstraction** for the
+//! [Crazyradio](https://www.bitcraze.io/products/crazyradio-pa/) USB dongle.
 //!
-//! Available Cargo features:
+//! Methods map to hardware operations (channels, datarates, TX power, addresses,
+//! pipes) while USB protocol details — such as inline-mode bulk headers and
+//! settings caching — are handled transparently.  Values use conventional
+//! hardware-domain units (e.g. RSSI in negative dBm).  Higher-level concerns
+//! like connection management, retry policies, and device discovery belong in
+//! downstream crates such as `crazyflie-link`.
+//!
+//! # Cargo features
 //!  - **shared_radio** enables [SharedCrazyradio] object that allows to share a radio between threads
-//!  - **async** enables async function to create a [Crazyradio] object, use the [SharedCrazyradio], and enter async sniffer mode via [`Crazyradio::enter_sniffer_mode_async`]
+//!  - **async** enables async versions of open/serial functions, the [SharedCrazyradio] async API, and async sniffer mode via [`Crazyradio::enter_sniffer_mode_async`]
 //!  - **serde** emables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
 //!  - **packet_capture** enables functionality to capture packets by registering a callback which is called for each in/out packet
 
@@ -713,7 +720,7 @@ impl Crazyradio {
         let timestamp_us = u32::from_le_bytes([buf[3], buf[4], buf[5], buf[6]]);
 
         Ok(Some(SnifferPacket {
-            rssi_dbm: buf[1],
+            rssi_dbm: -(buf[1] as i16),
             pipe: buf[2],
             timestamp_us,
             length: payload_length,
@@ -903,7 +910,7 @@ impl Crazyradio {
 
         // Decode RSSI value if available
         let rssi_dbm = if self.inline_mode == InlineMode::OnWithRssi && ack_received {
-            Some(answer[IN_HEADER_RSSI])
+            Some(-(answer[IN_HEADER_RSSI] as i16))
         } else {
             None
         };
@@ -927,12 +934,12 @@ impl Crazyradio {
 
 /// # Async implementations
 ///
-/// Async version of open/getserial functions.
+/// Async wrappers for blocking operations (open, serial listing) and async
+/// sniffer mode entry.
 ///
-/// Implemented by launching a thread, calling the sync function and passing the
-/// result back though a channel.
-/// This is not the most efficient implementation but it keeps the lib executor-independent
-/// and these functions are only one-time-call in most programs.
+/// The open/serial functions are implemented by spawning a thread and passing
+/// the result back through a channel. This keeps the library
+/// executor-independent.
 #[cfg(feature = "async")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async")))]
 impl Crazyradio {
@@ -990,6 +997,7 @@ impl Crazyradio {
 
 /// Errors returned by Crazyradio functions
 #[derive(thiserror::Error, Debug, Clone)]
+#[non_exhaustive]
 pub enum Error {
     /// USB error returned by the underlying rusb library
     #[error("Usb Error: {0:?}")]
@@ -1030,17 +1038,17 @@ pub struct Ack {
     pub retry: usize,
     /// Length of the ack payload
     pub length: usize,
-    /// RSSI dbm value  of the received ack packet. This is the raw value from the radio, it is inverted so -60dBm is encoded as 60.
+    /// RSSI in dBm (negative, e.g. -60 means -60 dBm).
     /// This is a measurement of the radio dongle of how strong the ack packet was received.
     /// This field is only available if the radio is set in InlineMode::OnWithRssi (default at value) and the radio firmware supports it (Crazyradio 2.0 with Fw >= 5.3).
-    pub rssi_dbm: Option<u8>,
+    pub rssi_dbm: Option<i16>,
 }
 
 /// A packet received in sniffer mode
 #[derive(Debug, Clone)]
 pub struct SnifferPacket {
-    /// RSSI in inverted dBm (e.g. 60 means -60 dBm)
-    pub rssi_dbm: u8,
+    /// RSSI in dBm (negative, e.g. -60 means -60 dBm)
+    pub rssi_dbm: i16,
     /// Pipe index the packet was received on (0 or 1)
     pub pipe: u8,
     /// Timestamp in microseconds (wraps every ~71 minutes)
