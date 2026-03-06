@@ -286,7 +286,11 @@ impl Crazyradio {
 
         // Exit sniffer mode if active
         if self.sniffer_mode {
-            _ = self.exit_sniffer_mode();
+            let result = self.exit_sniffer_mode();
+            // Always clear the flag regardless of USB outcome, so subsequent
+            // calls are not permanently blocked on a failed reset.
+            self.sniffer_mode = false;
+            result?;
         }
 
         // Try to set inline mode, ignore failure as this is not fatal (old radio FW do not implement it and will just be slower)
@@ -587,12 +591,13 @@ impl Crazyradio {
             let saved_inline_mode = self.inline_mode;
             self.set_inline_mode(InlineMode::Off)?;
             // Flush cached settings that were previously only sent inline
+            let saved_cache_settings = self.cache_settings;
             self.cache_settings = false;
             self.set_channel(self.channel)?;
             self.set_datarate(self.datarate)?;
             self.set_address(&self.address.clone())?;
             self.set_ack_enable(self.ack_enable)?;
-            self.cache_settings = true;
+            self.cache_settings = saved_cache_settings;
             self.inline_mode = saved_inline_mode;
         }
 

@@ -1,6 +1,7 @@
 #![cfg(feature = "async")]
 #![cfg_attr(docsrs, doc(cfg(feature = "async")))]
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,14 +28,18 @@ pub struct SnifferReceiver {
     packet_rx: Option<flume::Receiver<Result<ReceivedSnifferPacket>>>,
     close_tx: Option<flume::Sender<()>>,
     radio_rx: Option<flume::Receiver<Result<Crazyradio>>>,
+    session_active: Arc<AtomicBool>,
 }
 
 /// Sends broadcast packets and queries drop count while in sniffer mode.
 ///
 /// This handle **can be cloned** — multiple senders are allowed.
+/// After [`SnifferReceiver::close`] is called, any remaining sender clones
+/// will return [`Error::SnifferSessionClosed`] on use.
 #[derive(Clone)]
 pub struct SnifferSender {
     device_handle: Arc<rusb::DeviceHandle<rusb::GlobalContext>>,
+    session_active: Arc<AtomicBool>,
     #[cfg(feature = "packet_capture")]
     channel: u8,
     #[cfg(feature = "packet_capture")]
@@ -61,6 +66,8 @@ impl SnifferReceiver {
     /// Signals the RX thread to stop, waits for it to exit sniffer mode,
     /// and returns the radio for normal use.
     pub async fn close(mut self) -> Result<Crazyradio> {
+        // Invalidate any remaining SnifferSender clones
+        self.session_active.store(false, Ordering::Relaxed);
         // Signal the RX thread to stop
         drop(self.close_tx.take());
         // Drain the packet channel so the RX thread isn't blocked trying to send
@@ -86,6 +93,9 @@ impl SnifferSender {
     /// that were configured before entering sniffer mode. The radio briefly
     /// leaves RX mode during TX (~1 ms).
     pub async fn send_broadcast(&self, data: &[u8]) -> Result<()> {
+        if !self.session_active.load(Ordering::Relaxed) {
+            return Err(Error::SnifferSessionClosed);
+        }
         if data.is_empty() || data.len() > 32 {
             return Err(Error::InvalidArgument);
         }
@@ -120,6 +130,9 @@ impl SnifferSender {
     /// Get the number of packets dropped due to queue overflow since sniffer
     /// mode was last entered.
     pub async fn get_drop_count(&self) -> Result<u32> {
+        if !self.session_active.load(Ordering::Relaxed) {
+            return Err(Error::SnifferSessionClosed);
+        }
         let handle = self.device_handle.clone();
 
         let (tx, rx) = flume::bounded(1);
@@ -217,9 +230,10 @@ pub(crate) async fn enter_sniffer_mode_async(
     let cr = setup_rx.recv_async().await.unwrap()?;
 
     // Now cr is in sniffer mode. Set up channels and spawn RX thread.
-    let (packet_tx, packet_rx) = flume::bounded(128);
+    let (packet_tx, packet_rx) = flume::unbounded();
     let (close_tx, close_rx) = flume::bounded(1);
     let (radio_tx, radio_rx) = flume::bounded(1);
+    let session_active = Arc::new(AtomicBool::new(true));
 
     // We need to move cr into the RX thread. But first, ensure device_handle
     // Arc is shared. cr.device_handle is already an Arc so the sender's clone
@@ -233,10 +247,12 @@ pub(crate) async fn enter_sniffer_mode_async(
         packet_rx: Some(packet_rx),
         close_tx: Some(close_tx),
         radio_rx: Some(radio_rx),
+        session_active: session_active.clone(),
     };
 
     let sender = SnifferSender {
         device_handle,
+        session_active,
         #[cfg(feature = "packet_capture")]
         channel,
         #[cfg(feature = "packet_capture")]
