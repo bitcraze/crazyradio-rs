@@ -346,7 +346,7 @@ struct SendPacketResult {
     payload: Vec<u8>,
     retry: usize,
     power_detector: bool,
-    rssi_dbm: Option<u8>,
+    rssi_dbm: Option<i16>,
 }
 struct ScanResult {
     found: Vec<Channel>,

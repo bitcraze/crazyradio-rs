@@ -34,8 +34,7 @@ fn main() -> Result<(), crazyradio::Error> {
         match cr.send_packet(&[0xff], &mut ack_data) {
             Ok(ack) => {
                 let rssi_str = match ack.rssi_dbm {
-                    // rssi_dbm is inverted: -60dBm is encoded as 60
-                    Some(raw) => format!("-{} dBm", raw),
+                    Some(dbm) => format!("{} dBm", dbm),
                     None => "None".to_string(),
                 };
                 println!(
