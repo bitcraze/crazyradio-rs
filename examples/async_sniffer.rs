@@ -14,7 +14,7 @@ async fn main() -> Result<(), crazyradio::Error> {
     let (receiver, sender) = cr.enter_sniffer_mode_async().await?;
 
     // Send a broadcast packet (no-ack) in sniffer mode
-    sender.send_broadcast(&[0xff]).await?;
+    sender.send_broadcast(&[0xe7, 0xe7, 0xe7, 0xe7, 0xe7], &[0xff]).await?;
     println!("Sent broadcast packet");
 
     loop {

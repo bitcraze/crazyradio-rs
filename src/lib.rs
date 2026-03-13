@@ -734,16 +734,17 @@ impl Crazyradio {
 
     /// Send a broadcast (no-ack) packet while in sniffer mode.
     ///
-    /// The packet is sent using the current channel, datarate, and pipe-0
-    /// address. The radio briefly leaves RX mode during TX (~1ms), so
-    /// incoming packets during this window will be missed.
+    /// The packet is sent using the current channel, datarate, and the
+    /// given address. The radio briefly leaves RX mode during TX (~1ms),
+    /// so incoming packets during this window will be missed.
     ///
     /// No response is sent on the IN endpoint.
     ///
     /// # Arguments
     ///
+    ///  * `address`: 5-byte destination address for the broadcast.
     ///  * `data`: 1 to 32 bytes of raw ESB payload to broadcast.
-    pub fn send_sniffer_broadcast(&mut self, data: &[u8]) -> Result<()> {
+    pub fn send_sniffer_broadcast(&mut self, address: &[u8; 5], data: &[u8]) -> Result<()> {
         if !self.sniffer_mode {
             return Err(Error::InvalidArgument);
         }
@@ -755,13 +756,16 @@ impl Crazyradio {
         capture::capture_packet(
             capture::DIRECTION_TX,
             self.channel.into(),
-            &self.address,
+            address,
             &self.serial,
             data,
         );
 
+        let mut buf = Vec::with_capacity(5 + data.len());
+        buf.extend_from_slice(address);
+        buf.extend_from_slice(data);
         self.device_handle
-            .write_bulk(0x01, data, Duration::from_secs(1))?;
+            .write_bulk(0x01, &buf, Duration::from_secs(1))?;
 
         Ok(())
     }

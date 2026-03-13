@@ -3,7 +3,7 @@ use std::time::Duration;
 
 fn main() -> Result<(), crazyradio::Error> {
     // Open the second Crazyradio (index 1), assumes the first one is used by the client
-    let mut cr = Crazyradio::open_nth(1)?;
+    let mut cr = Crazyradio::open_nth(0)?;
 
     // Configure radio parameters before entering sniffer mode
     cr.set_channel(Channel::from_number(80)?)?;
@@ -15,7 +15,7 @@ fn main() -> Result<(), crazyradio::Error> {
 
     // Send a broadcast packet (no-ack) in sniffer mode.
     // This transmits using the current channel, datarate, and pipe-0 address.
-    cr.send_sniffer_broadcast(&[0xff])?;
+    cr.send_sniffer_broadcast(&[0xe7, 0xe7, 0xe7, 0xe7, 0xe7], &[0xff])?;
     println!("Sent broadcast packet");
 
     let mut payload = [0u8; 32];

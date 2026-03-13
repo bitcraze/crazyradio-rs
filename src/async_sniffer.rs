@@ -43,8 +43,6 @@ pub struct SnifferSender {
     #[cfg(feature = "packet_capture")]
     channel: u8,
     #[cfg(feature = "packet_capture")]
-    address: [u8; 5],
-    #[cfg(feature = "packet_capture")]
     serial: String,
 }
 
@@ -89,10 +87,14 @@ impl SnifferReceiver {
 impl SnifferSender {
     /// Send a broadcast (no-ack) packet while in sniffer mode.
     ///
-    /// The packet is sent using the channel, datarate, and pipe-0 address
-    /// that were configured before entering sniffer mode. The radio briefly
-    /// leaves RX mode during TX (~1 ms).
-    pub async fn send_broadcast(&self, data: &[u8]) -> Result<()> {
+    /// The packet is sent using the channel, datarate, and the given
+    /// address. The radio briefly leaves RX mode during TX (~1 ms).
+    ///
+    /// # Arguments
+    ///
+    ///  * `address`: 5-byte destination address for the broadcast.
+    ///  * `data`: 1 to 32 bytes of raw ESB payload to broadcast.
+    pub async fn send_broadcast(&self, address: &[u8; 5], data: &[u8]) -> Result<()> {
         if !self.session_active.load(Ordering::Relaxed) {
             return Err(Error::SnifferSessionClosed);
         }
@@ -101,10 +103,14 @@ impl SnifferSender {
         }
 
         let handle = self.device_handle.clone();
-        let data = data.to_vec();
+        let mut buf = Vec::with_capacity(5 + data.len());
+        buf.extend_from_slice(address);
+        buf.extend_from_slice(data);
 
         #[cfg(feature = "packet_capture")]
-        let (channel, address, serial) = (self.channel, self.address, self.serial.clone());
+        let (channel, serial) = (self.channel, self.serial.clone());
+        #[cfg(feature = "packet_capture")]
+        let capture_address = *address;
 
         let (tx, rx) = flume::bounded(1);
         std::thread::spawn(move || {
@@ -112,13 +118,13 @@ impl SnifferSender {
             crate::capture::capture_packet(
                 crate::capture::DIRECTION_TX,
                 channel,
-                &address,
+                &capture_address,
                 &serial,
-                &data,
+                &buf[5..],
             );
 
             let result = handle
-                .write_bulk(0x01, &data, Duration::from_secs(1))
+                .write_bulk(0x01, &buf, Duration::from_secs(1))
                 .map(|_| ())
                 .map_err(Error::from);
             let _ = tx.send(result);
@@ -210,8 +216,6 @@ pub(crate) async fn enter_sniffer_mode_async(
     #[cfg(feature = "packet_capture")]
     let channel: u8 = cr.channel.into();
     #[cfg(feature = "packet_capture")]
-    let address = cr.address;
-    #[cfg(feature = "packet_capture")]
     let serial = cr.serial.clone();
 
     // Enter sniffer mode (blocking USB call) on a spawned thread
@@ -255,8 +259,6 @@ pub(crate) async fn enter_sniffer_mode_async(
         session_active,
         #[cfg(feature = "packet_capture")]
         channel,
-        #[cfg(feature = "packet_capture")]
-        address,
         #[cfg(feature = "packet_capture")]
         serial,
     };
