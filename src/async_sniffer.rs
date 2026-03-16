@@ -93,12 +93,12 @@ impl SnifferSender {
     /// # Arguments
     ///
     ///  * `address`: 5-byte destination address for the broadcast.
-    ///  * `data`: 1 to 32 bytes of raw ESB payload to broadcast.
+    ///  * `data`: 1 to 63 bytes of raw ESB payload to broadcast.
     pub async fn send_broadcast(&self, address: &[u8; 5], data: &[u8]) -> Result<()> {
         if !self.session_active.load(Ordering::Relaxed) {
             return Err(Error::SnifferSessionClosed);
         }
-        if data.is_empty() || data.len() > 32 {
+        if data.is_empty() || data.len() > 63 {
             return Err(Error::InvalidArgument);
         }
 
@@ -177,7 +177,7 @@ fn sniffer_rx_loop(
             break;
         }
 
-        let mut payload_buf = [0u8; 32];
+        let mut payload_buf = [0u8; 63];
         match cr.receive_sniffer_packet(&mut payload_buf, RX_TIMEOUT) {
             Ok(Some(pkt)) => {
                 let received = ReceivedSnifferPacket {

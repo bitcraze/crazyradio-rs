@@ -18,7 +18,7 @@ fn main() -> Result<(), crazyradio::Error> {
     cr.send_sniffer_broadcast(&[0xe7, 0xe7, 0xe7, 0xe7, 0xe7], &[0xff])?;
     println!("Sent broadcast packet");
 
-    let mut payload = [0u8; 32];
+    let mut payload = [0u8; 63];
     loop {
         match cr.receive_sniffer_packet(&mut payload, Duration::from_secs(1))? {
             Some(pkt) => {

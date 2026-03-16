@@ -697,7 +697,7 @@ impl Crazyradio {
             return Err(Error::InvalidArgument);
         }
 
-        let mut buf = [0u8; 39]; // 7 header + 32 max payload
+        let mut buf = [0u8; 70]; // 7 header + 63 max payload
         let received = match self.device_handle.read_bulk(0x81, &mut buf, timeout) {
             Ok(n) => n,
             Err(rusb::Error::Timeout) => return Ok(None),
@@ -743,12 +743,12 @@ impl Crazyradio {
     /// # Arguments
     ///
     ///  * `address`: 5-byte destination address for the broadcast.
-    ///  * `data`: 1 to 32 bytes of raw ESB payload to broadcast.
+    ///  * `data`: 1 to 63 bytes of raw ESB payload to broadcast.
     pub fn send_sniffer_broadcast(&mut self, address: &[u8; 5], data: &[u8]) -> Result<()> {
         if !self.sniffer_mode {
             return Err(Error::InvalidArgument);
         }
-        if data.is_empty() || data.len() > 32 {
+        if data.is_empty() || data.len() > 63 {
             return Err(Error::InvalidArgument);
         }
 
