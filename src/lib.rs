@@ -15,7 +15,7 @@
 //! # Cargo features
 //!  - **shared_radio** enables [SharedCrazyradio] object that allows to share a radio between threads
 //!  - **async** enables async versions of open/serial functions, the [SharedCrazyradio] async API, and async sniffer mode via [`Crazyradio::enter_sniffer_mode_async`]
-//!  - **serde** emables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
+//!  - **serde** enables [serde](https://crates.io/crates/serde) serialization/deserialization of the [Channel] struct
 //!  - **packet_capture** enables functionality to capture packets by registering a callback which is called for each in/out packet
 
 #![deny(missing_docs)]
@@ -176,6 +176,7 @@ pub struct Crazyradio {
 
     cache_settings: bool,
     inline_mode: InlineMode,
+    saved_inline_mode: InlineMode,
     sniffer_mode: bool,
 
     // Settings cache
@@ -248,6 +249,7 @@ impl Crazyradio {
 
             cache_settings: true,
             inline_mode: InlineMode::Off,
+            saved_inline_mode: InlineMode::Off,
             sniffer_mode: false,
 
             channel: Channel::from_number(2).unwrap(),
@@ -284,14 +286,18 @@ impl Crazyradio {
         let prev_cache_settings = self.cache_settings;
         self.cache_settings = false;
 
-        // Exit sniffer mode if active
-        if self.sniffer_mode {
-            let result = self.exit_sniffer_mode();
-            // Always clear the flag regardless of USB outcome, so subsequent
-            // calls are not permanently blocked on a failed reset.
-            self.sniffer_mode = false;
-            result?;
-        }
+        // Always exit sniffer mode unconditionally: a previous session may
+        // have left the radio in sniffer mode. Ignore errors since older
+        // firmware without sniffer support will reject the command.
+        let _ = self.device_handle.write_control(
+            0x40,
+            UsbCommand::SetRadioMode as u8,
+            0,
+            0,
+            &[],
+            Duration::from_secs(1),
+        );
+        self.sniffer_mode = false;
 
         // Try to set inline mode, ignore failure as this is not fatal (old radio FW do not implement it and will just be slower)
         // We set it on first and then with rssi, this way the dongle is set to the maximum inline mode supported
@@ -588,7 +594,7 @@ impl Crazyradio {
     pub fn enter_sniffer_mode(&mut self) -> Result<()> {
         // Disable inline mode so that cached settings are flushed to the radio
         if self.inline_mode.is_on() {
-            let saved_inline_mode = self.inline_mode;
+            self.saved_inline_mode = self.inline_mode;
             self.set_inline_mode(InlineMode::Off)?;
             // Flush cached settings that were previously only sent inline
             let saved_cache_settings = self.cache_settings;
@@ -596,9 +602,17 @@ impl Crazyradio {
             self.set_channel(self.channel)?;
             self.set_datarate(self.datarate)?;
             self.set_address(&self.address.clone())?;
-            self.set_ack_enable(self.ack_enable)?;
             self.cache_settings = saved_cache_settings;
-            self.inline_mode = saved_inline_mode;
+            // Flush ack_enable directly — set_ack_enable would skip the USB
+            // transfer because the cached value already matches.
+            self.device_handle.write_control(
+                0x40,
+                UsbCommand::AckEnable as u8,
+                self.ack_enable as u16,
+                0,
+                &[],
+                Duration::from_secs(1),
+            )?;
         }
 
         self.device_handle.write_control(
@@ -628,10 +642,9 @@ impl Crazyradio {
         self.sniffer_mode = false;
 
         // Re-enable inline mode if it was previously active
-        if self.inline_mode.is_on() {
-            let mode = self.inline_mode;
-            self.inline_mode = InlineMode::Off;
-            self.set_inline_mode(mode)?;
+        if self.saved_inline_mode.is_on() {
+            self.set_inline_mode(self.saved_inline_mode)?;
+            self.saved_inline_mode = InlineMode::Off;
         }
 
         Ok(())

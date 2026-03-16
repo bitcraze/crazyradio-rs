@@ -67,7 +67,9 @@ impl SnifferReceiver {
         // Invalidate any remaining SnifferSender clones
         self.session_active.store(false, Ordering::Relaxed);
         // Signal the RX thread to stop
-        drop(self.close_tx.take());
+        if let Some(close_tx) = self.close_tx.take() {
+            let _ = close_tx.send(());
+        }
         // Drain the packet channel so the RX thread isn't blocked trying to send
         if let Some(packet_rx) = self.packet_rx.take() {
             drop(packet_rx);
