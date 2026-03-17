@@ -1083,7 +1083,7 @@ pub struct Ack {
     pub retry: usize,
     /// Length of the ack payload
     pub length: usize,
-    /// RSSI in dBm (negative, e.g. -60 means -60 dBm).
+    /// RSSI in dBm
     /// This is a measurement of the radio dongle of how strong the ack packet was received.
     /// This field is only available if the radio is set in InlineMode::OnWithRssi (default at value) and the radio firmware supports it (Crazyradio 2.0 with Fw >= 5.3).
     pub rssi_dbm: Option<i16>,
