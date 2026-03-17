@@ -641,6 +641,16 @@ impl Crazyradio {
         )?;
         self.sniffer_mode = false;
 
+        // Drain any leftover sniffer packets from the USB IN endpoint.
+        // Due to the race between firmware mode switch and packet reception,
+        // some sniffer packets may still be queued.
+        let mut drain_buf = [0u8; 64];
+        while self
+            .device_handle
+            .read_bulk(0x81, &mut drain_buf, Duration::from_millis(10))
+            .is_ok()
+        {}
+
         // Re-enable inline mode if it was previously active
         if self.saved_inline_mode.is_on() {
             self.set_inline_mode(self.saved_inline_mode)?;
@@ -911,9 +921,21 @@ impl Crazyradio {
         let mut answer = [0u8; 64];
         self.device_handle
             .write_bulk(0x01, &command, Duration::from_secs(1))?;
-        let answer_size =
-            self.device_handle
+
+        // Read response, discarding any stale sniffer packets that may still
+        // be queued due to the race between firmware mode switch and packet
+        // reception. PTX ack responses are at most 35 bytes (3-byte header +
+        // 32-byte max payload), so anything larger is a stale sniffer packet.
+        const MAX_INLINE_ACK_SIZE: usize = 35;
+        let answer_size = loop {
+            let size = self
+                .device_handle
                 .read_bulk(0x81, &mut answer, Duration::from_secs(1))?;
+            if size <= MAX_INLINE_ACK_SIZE {
+                break size;
+            }
+            // Stale sniffer packet, discard and read again
+        };
 
         let header_length = match self.inline_mode {
             InlineMode::On => IN_HEADER_LENGTH,
@@ -940,8 +962,9 @@ impl Crazyradio {
         // Decode answer, at this point we are sure that answer[0] is >= 2
         let payload_length = (answer[0] as usize) - header_length;
         if let Some(ack_data) = ack_data {
-            ack_data[0..payload_length]
-                .copy_from_slice(&answer[header_length..(header_length + payload_length)]);
+            let copy_len = payload_length.min(ack_data.len());
+            ack_data[0..copy_len]
+                .copy_from_slice(&answer[header_length..(header_length + copy_len)]);
         }
 
         Ok(Ack {
