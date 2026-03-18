@@ -1,13 +1,13 @@
 [package]
 name = "crazyradio"
-version = "0.5.1"
+version = "0.6.0"
 authors = ["Arnaud Taffanel <arnaud@taffanel.org>"]
 edition = "2021"
 description = "Crazyradio USB dongle driver"
 readme = "README.md"
 repository = "https://github.com/ataffanel/crazyradio-rs"
 license = "MIT"
-keywords = ["nrf24", "crazyflie"]
+keywords = ["crazyflie", "crazyradio"]
 categories = ["hardware-support"]
 exclude = [
     ".github/*"
