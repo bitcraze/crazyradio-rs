@@ -102,6 +102,22 @@ fn list_crazyradio_serials() -> Result<Vec<String>> {
     Ok(serials)
 }
 
+const USB_RX_DRAIN_MAX_PACKETS: usize = 64;
+
+fn drain_rx_queue_with<F>(mut read_bulk: F) -> usize
+where
+    F: FnMut(&mut [u8; 64]) -> std::result::Result<usize, rusb::Error>,
+{
+    let mut drain_buf = [0u8; 64];
+    let mut drained = 0;
+
+    while drained < USB_RX_DRAIN_MAX_PACKETS && read_bulk(&mut drain_buf).is_ok() {
+        drained += 1;
+    }
+
+    drained
+}
+
 enum UsbCommand {
     SetRadioChannel = 0x01,
     SetRadioAddress = 0x02,
@@ -230,6 +246,7 @@ impl Crazyradio {
         let device_handle = Arc::new(device.open()?);
 
         device_handle.claim_interface(0)?;
+        drain_rx_queue_with(|buf| device_handle.read_bulk(0x81, buf, Duration::from_millis(1)));
 
         // Make sure the dongle version is >= 0.5
         let version = device_desciptor.device_version();
@@ -286,6 +303,8 @@ impl Crazyradio {
         let prev_cache_settings = self.cache_settings;
         self.cache_settings = false;
 
+        self.drain_rx_queue();
+
         // Always exit sniffer mode unconditionally: a previous session may
         // have left the radio in sniffer mode. Ignore errors since older
         // firmware without sniffer support will reject the command.
@@ -315,7 +334,16 @@ impl Crazyradio {
 
         self.cache_settings = prev_cache_settings;
 
+        self.drain_rx_queue();
+
         Ok(())
+    }
+
+    fn drain_rx_queue(&self) -> usize {
+        drain_rx_queue_with(|buf| {
+            self.device_handle
+                .read_bulk(0x81, buf, Duration::from_millis(1))
+        })
     }
 
     /// Enable or disable caching of settings
@@ -1198,5 +1226,27 @@ mod tests {
         let result = serde_json::to_string(&test_channel);
 
         assert!(matches!(result, Ok(str) if str == "42"));
+    }
+
+    #[test]
+    fn drain_rx_queue_reads_until_the_endpoint_is_empty() {
+        let mut responses = vec![Ok(3usize), Ok(2usize), Err(rusb::Error::Timeout)];
+
+        let drained = super::drain_rx_queue_with(|_| responses.remove(0));
+
+        assert_eq!(drained, 2);
+    }
+
+    #[test]
+    fn drain_rx_queue_stops_after_max_packets() {
+        let mut reads = 0;
+
+        let drained = super::drain_rx_queue_with(|_| {
+            reads += 1;
+            Ok(1usize)
+        });
+
+        assert_eq!(drained, super::USB_RX_DRAIN_MAX_PACKETS);
+        assert_eq!(reads, super::USB_RX_DRAIN_MAX_PACKETS);
     }
 }
