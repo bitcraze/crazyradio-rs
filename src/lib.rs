@@ -102,6 +102,28 @@ fn list_crazyradio_serials() -> Result<Vec<String>> {
     Ok(serials)
 }
 
+const USB_RX_DRAIN_MAX_PACKETS: usize = 64;
+
+fn drain_rx_queue_with<F>(mut read_bulk: F) -> Result<usize>
+where
+    F: FnMut(&mut [u8; 64]) -> std::result::Result<usize, rusb::Error>,
+{
+    let mut drain_buf = [0u8; 64];
+    let mut drained = 0;
+
+    while read_bulk(&mut drain_buf).is_ok() {
+        drained += 1;
+
+        if drained == USB_RX_DRAIN_MAX_PACKETS {
+            return Err(Error::UsbProtocolError(format!(
+                "USB RX endpoint still not empty after draining {USB_RX_DRAIN_MAX_PACKETS} packets"
+            )));
+        }
+    }
+
+    Ok(drained)
+}
+
 enum UsbCommand {
     SetRadioChannel = 0x01,
     SetRadioAddress = 0x02,
@@ -286,6 +308,10 @@ impl Crazyradio {
         let prev_cache_settings = self.cache_settings;
         self.cache_settings = false;
 
+        // Clear packets left in the USB IN endpoint by a previous session
+        // before changing the radio state.
+        self.drain_rx_queue()?;
+
         // Always exit sniffer mode unconditionally: a previous session may
         // have left the radio in sniffer mode. Ignore errors since older
         // firmware without sniffer support will reject the command.
@@ -315,7 +341,19 @@ impl Crazyradio {
 
         self.cache_settings = prev_cache_settings;
 
+        // Drain again after the mode switch/reset sequence. Packets can still
+        // arrive while the firmware exits sniffer mode, so the initial drain
+        // alone does not guarantee the endpoint is empty.
+        self.drain_rx_queue()?;
+
         Ok(())
+    }
+
+    fn drain_rx_queue(&self) -> Result<usize> {
+        drain_rx_queue_with(|buf| {
+            self.device_handle
+                .read_bulk(0x81, buf, Duration::from_millis(1))
+        })
     }
 
     /// Enable or disable caching of settings
@@ -1198,5 +1236,27 @@ mod tests {
         let result = serde_json::to_string(&test_channel);
 
         assert!(matches!(result, Ok(str) if str == "42"));
+    }
+
+    #[test]
+    fn drain_rx_queue_reads_until_the_endpoint_is_empty() {
+        let mut responses = vec![Ok(3usize), Ok(2usize), Err(rusb::Error::Timeout)];
+
+        let drained = super::drain_rx_queue_with(|_| responses.remove(0));
+
+        assert!(matches!(drained, Ok(2)));
+    }
+
+    #[test]
+    fn drain_rx_queue_returns_error_after_max_packets() {
+        let mut reads = 0;
+
+        let drained = super::drain_rx_queue_with(|_| {
+            reads += 1;
+            Ok(1usize)
+        });
+
+        assert!(matches!(drained, Err(super::Error::UsbProtocolError(_))));
+        assert_eq!(reads, super::USB_RX_DRAIN_MAX_PACKETS);
     }
 }
