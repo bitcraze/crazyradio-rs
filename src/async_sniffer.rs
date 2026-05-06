@@ -170,6 +170,9 @@ fn sniffer_rx_loop(
     packet_tx: flume::Sender<Result<ReceivedSnifferPacket>>,
     close_rx: flume::Receiver<()>,
     radio_tx: flume::Sender<Result<Crazyradio>>,
+    #[cfg(feature = "packet_capture")] channel: u8,
+    #[cfg(feature = "packet_capture")] address: [u8; 5],
+    #[cfg(feature = "packet_capture")] serial: String,
 ) {
     const RX_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -182,6 +185,15 @@ fn sniffer_rx_loop(
         let mut payload_buf = [0u8; 63];
         match cr.receive_sniffer_packet(&mut payload_buf, RX_TIMEOUT) {
             Ok(Some(pkt)) => {
+                #[cfg(feature = "packet_capture")]
+                crate::capture::capture_packet(
+                    crate::capture::DIRECTION_RX,
+                    channel,
+                    &address,
+                    &serial,
+                    &payload_buf[..pkt.length],
+                );
+
                 let received = ReceivedSnifferPacket {
                     rssi_dbm: pkt.rssi_dbm,
                     pipe: pkt.pipe,
@@ -245,8 +257,26 @@ pub(crate) async fn enter_sniffer_mode_async(
     // Arc is shared. cr.device_handle is already an Arc so the sender's clone
     // keeps it alive even after cr moves.
 
+    #[cfg(feature = "packet_capture")]
+    let rx_channel = channel;
+    #[cfg(feature = "packet_capture")]
+    let rx_address = cr.address;
+    #[cfg(feature = "packet_capture")]
+    let rx_serial = serial.clone();
+
     std::thread::spawn(move || {
-        sniffer_rx_loop(cr, packet_tx, close_rx, radio_tx);
+        sniffer_rx_loop(
+            cr,
+            packet_tx,
+            close_rx,
+            radio_tx,
+            #[cfg(feature = "packet_capture")]
+            rx_channel,
+            #[cfg(feature = "packet_capture")]
+            rx_address,
+            #[cfg(feature = "packet_capture")]
+            rx_serial,
+        );
     });
 
     let receiver = SnifferReceiver {
