@@ -78,6 +78,15 @@ fn get_serial<T: rusb::UsbContext>(
     }
 }
 
+fn format_device_version(version: rusb::Version) -> String {
+    format!(
+        "{}.{}{}",
+        version.major(),
+        version.minor(),
+        version.sub_minor()
+    )
+}
+
 fn list_crazyradio_serials() -> Result<Vec<String>> {
     let mut serials = vec![];
 
@@ -139,7 +148,29 @@ enum UsbCommand {
     SetSnifferAddress = 0x25,
     GetSnifferDropCount = 0x26,
     SetPacketLossSimulation = 0x30,
+    SetTestMode = 0x31,
+    SetTestNrfTxPower = 0x32,
+    SetTestPaPower = 0x33,
+    GetTestState = 0x34,
     LaunchBootloader = 0xff,
+}
+
+fn map_reset_test_mode_idle_result(result: std::result::Result<usize, rusb::Error>) -> Result<()> {
+    match result {
+        Ok(_) | Err(rusb::Error::Pipe) => Ok(()),
+        Err(error) => Err(Error::UsbError(error)),
+    }
+}
+
+fn map_test_command_usb_error(error: rusb::Error) -> Error {
+    match error {
+        rusb::Error::Pipe => Error::TestCommandsNotSupported,
+        error => Error::UsbError(error),
+    }
+}
+
+fn map_test_command_usb_result<T>(result: std::result::Result<T, rusb::Error>) -> Result<T> {
+    result.map_err(map_test_command_usb_error)
 }
 
 /// Inline mode setting for USB protocol
@@ -301,6 +332,14 @@ impl Crazyradio {
         get_serial(&self.device_desciptor, &self.device_handle)
     }
 
+    /// Return the USB device version of this radio as a string.
+    ///
+    /// This formats the USB descriptor `bcdDevice` value in the same BCD-style
+    /// display form used by USB tooling, e.g. `0x0503` as `5.03`.
+    pub fn dongle_version(&self) -> String {
+        format_device_version(self.device_desciptor.device_version())
+    }
+
     /// Reset dongle parameters to boot values.
     ///
     /// This function is called by Crazyradio::open_*.
@@ -324,6 +363,18 @@ impl Crazyradio {
             Duration::from_secs(1),
         );
         self.sniffer_mode = false;
+
+        // Always exit TEST mode unconditionally: a previous session may have
+        // left the radio transmitting a TEST carrier. Ignore only the STALL
+        // returned by older firmware without TEST command support.
+        map_reset_test_mode_idle_result(self.device_handle.write_control(
+            0x40,
+            UsbCommand::SetTestMode as u8,
+            TestMode::Idle as u16,
+            0,
+            &[],
+            Duration::from_secs(1),
+        ))?;
 
         // Try to set inline mode, ignore failure as this is not fatal (old radio FW do not implement it and will just be slower)
         // We set it on first and then with rssi, this way the dongle is set to the maximum inline mode supported
@@ -368,7 +419,17 @@ impl Crazyradio {
         self.cache_settings = cache_settings;
     }
 
-    /// Set the radio channel.
+    /// Set the radio channel for packet transmission.
+    ///
+    /// When inline mode is enabled, this only updates the host-side cached
+    /// channel that will be sent in the header of future packet transfers; it
+    /// does not immediately retune the firmware. When inline mode is disabled,
+    /// the USB control transfer can still be skipped if settings caching is
+    /// enabled and the requested channel matches the cached value.
+    ///
+    /// Use [`Crazyradio::set_test_channel`] when controlling firmware TEST
+    /// modes, where the channel must be applied immediately and no packet
+    /// transfer follows.
     pub fn set_channel(&mut self, channel: Channel) -> Result<()> {
         if self.inline_mode.is_off() && (!self.cache_settings || self.channel != channel) {
             self.device_handle.write_control(
@@ -386,7 +447,13 @@ impl Crazyradio {
         Ok(())
     }
 
-    /// Set the datarate.
+    /// Set the datarate for packet transmission.
+    ///
+    /// When inline mode is enabled, this only updates the host-side cached
+    /// datarate that will be sent in the header of future packet transfers; it
+    /// does not immediately update the firmware. When inline mode is disabled,
+    /// the USB control transfer can still be skipped if settings caching is
+    /// enabled and the requested datarate matches the cached value.
     pub fn set_datarate(&mut self, datarate: Datarate) -> Result<()> {
         if self.inline_mode.is_off() && (!self.cache_settings || self.datarate != datarate) {
             self.device_handle.write_control(
@@ -404,7 +471,13 @@ impl Crazyradio {
         Ok(())
     }
 
-    /// Set the radio address.
+    /// Set the radio address for packet transmission.
+    ///
+    /// When inline mode is enabled, this only updates the host-side cached
+    /// address that will be sent in the header of future packet transfers; it
+    /// does not immediately update the firmware. When inline mode is disabled,
+    /// the USB control transfer can still be skipped if settings caching is
+    /// enabled and the requested address matches the cached value.
     pub fn set_address(&mut self, address: &[u8; 5]) -> Result<()> {
         if self.inline_mode.is_off() && (!self.cache_settings || self.address != *address) {
             self.device_handle.write_control(
@@ -493,6 +566,12 @@ impl Crazyradio {
     /// Set if the radio waits for an ack packet.
     ///
     /// Should be disabled when sending broadcast packets.
+    ///
+    /// When inline mode is enabled, this only updates the host-side cached ACK
+    /// setting that will be sent in the header of future packet transfers; it
+    /// does not immediately update the firmware. When inline mode is disabled,
+    /// the USB control transfer can still be skipped if the requested setting
+    /// matches the cached value.
     pub fn set_ack_enable(&mut self, ack_enable: bool) -> Result<()> {
         if self.inline_mode.is_off() && ack_enable != self.ack_enable {
             self.device_handle.write_control(
@@ -615,6 +694,94 @@ impl Crazyradio {
         } else {
             Err(Error::InvalidArgument)
         }
+    }
+
+    /// Set the radio TEST mode.
+    ///
+    /// TEST modes are intended for RF certification and radio measurements.
+    /// They do not replace the normal Crazyflie communication mode.
+    pub fn set_test_mode(&mut self, mode: TestMode) -> Result<()> {
+        map_test_command_usb_result(self.device_handle.write_control(
+            0x40,
+            UsbCommand::SetTestMode as u8,
+            mode as u16,
+            0,
+            &[],
+            Duration::from_secs(1),
+        ))?;
+        Ok(())
+    }
+
+    /// Set the radio channel used in TEST modes.
+    ///
+    /// Unlike [`Crazyradio::set_channel`], this always sends the firmware
+    /// control request immediately, regardless of inline mode or settings
+    /// caching. Use this for RF TEST modes where no packet transfer follows to
+    /// carry inline settings.
+    pub fn set_test_channel(&mut self, channel: Channel) -> Result<()> {
+        map_test_command_usb_result(self.device_handle.write_control(
+            0x40,
+            UsbCommand::SetRadioChannel as u8,
+            channel.0 as u16,
+            0,
+            &[],
+            Duration::from_secs(1),
+        ))?;
+        self.channel = channel;
+
+        Ok(())
+    }
+
+    /// Set the nRF52840 RADIO.TXPOWER value used in TEST modes.
+    pub fn set_test_nrf_tx_power(&mut self, power: NrfTxPower) -> Result<()> {
+        map_test_command_usb_result(self.device_handle.write_control(
+            0x40,
+            UsbCommand::SetTestNrfTxPower as u8,
+            power.register_value() as u16,
+            0,
+            &[],
+            Duration::from_secs(1),
+        ))?;
+        Ok(())
+    }
+
+    /// Set the nRF21540 PA TX gain used in TEST modes.
+    pub fn set_test_pa_power(&mut self, power: u8) -> Result<()> {
+        if power > 31 {
+            return Err(Error::InvalidArgument);
+        }
+
+        map_test_command_usb_result(self.device_handle.write_control(
+            0x40,
+            UsbCommand::SetTestPaPower as u8,
+            power as u16,
+            0,
+            &[],
+            Duration::from_secs(1),
+        ))?;
+        Ok(())
+    }
+
+    /// Read the firmware-applied TEST state.
+    pub fn get_test_state(&mut self) -> Result<TestState> {
+        let mut buf = [0u8; 4];
+        let received = map_test_command_usb_result(self.device_handle.read_control(
+            0xC0,
+            UsbCommand::GetTestState as u8,
+            0,
+            0,
+            &mut buf,
+            Duration::from_secs(1),
+        ))?;
+
+        if received != buf.len() {
+            return Err(Error::UsbProtocolError(format!(
+                "TEST state response has length {received}, expected {}",
+                buf.len()
+            )));
+        }
+
+        TestState::from_firmware_bytes(buf)
     }
 
     /// Enter sniffer mode (continuous RX).
@@ -1094,6 +1261,9 @@ pub enum Error {
     /// Crazyradio version not supported
     #[error("Crazyradio version not supported")]
     DongleVersionNotSupported,
+    /// Crazyradio firmware version does not support TEST commands
+    #[error("This version of the Crazyradio firmware does not support TEST commands")]
+    TestCommandsNotSupported,
     /// USB protocol error, for example when receiving an answer of unexpected length
     #[error("USB protocol error ({0})")]
     UsbProtocolError(String),
@@ -1200,6 +1370,150 @@ pub enum Power {
     P0dBm = 3,
 }
 
+/// Radio TEST mode.
+#[repr(u16)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TestMode {
+    /// Normal idle mode; no TEST carrier is transmitted.
+    Idle = 0,
+    /// Continuous unmodulated carrier.
+    ContinuousCarrier = 1,
+    /// Continuous modulated carrier using Nordic 1 Mbps radio mode.
+    ContinuousModulatedCarrier1Mbps = 2,
+    /// Continuous modulated carrier using Nordic 2 Mbps radio mode.
+    ContinuousModulatedCarrier2Mbps = 3,
+}
+
+impl TryFrom<u8> for TestMode {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self> {
+        match value {
+            0 => Ok(TestMode::Idle),
+            1 => Ok(TestMode::ContinuousCarrier),
+            2 => Ok(TestMode::ContinuousModulatedCarrier1Mbps),
+            3 => Ok(TestMode::ContinuousModulatedCarrier2Mbps),
+            _ => Err(Error::UsbProtocolError(format!(
+                "unknown TEST mode value {value}"
+            ))),
+        }
+    }
+}
+
+/// nRF52840 RADIO.TXPOWER value for TEST modes.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum NrfTxPower {
+    /// -40 dBm.
+    Pm40dBm,
+    /// -20 dBm.
+    Pm20dBm,
+    /// -16 dBm.
+    Pm16dBm,
+    /// -12 dBm.
+    Pm12dBm,
+    /// -8 dBm.
+    Pm8dBm,
+    /// -4 dBm.
+    Pm4dBm,
+    /// 0 dBm.
+    P0dBm,
+    /// +2 dBm.
+    P2dBm,
+    /// +3 dBm.
+    P3dBm,
+    /// +4 dBm.
+    P4dBm,
+    /// +5 dBm.
+    P5dBm,
+    /// +6 dBm.
+    P6dBm,
+    /// +7 dBm.
+    P7dBm,
+    /// +8 dBm.
+    P8dBm,
+}
+
+impl NrfTxPower {
+    /// Return the raw RADIO.TXPOWER register value sent to the firmware.
+    pub fn register_value(self) -> u8 {
+        match self {
+            NrfTxPower::Pm40dBm => 0xD8,
+            NrfTxPower::Pm20dBm => 0xEC,
+            NrfTxPower::Pm16dBm => 0xF0,
+            NrfTxPower::Pm12dBm => 0xF4,
+            NrfTxPower::Pm8dBm => 0xF8,
+            NrfTxPower::Pm4dBm => 0xFC,
+            NrfTxPower::P0dBm => 0x00,
+            NrfTxPower::P2dBm => 0x02,
+            NrfTxPower::P3dBm => 0x03,
+            NrfTxPower::P4dBm => 0x04,
+            NrfTxPower::P5dBm => 0x05,
+            NrfTxPower::P6dBm => 0x06,
+            NrfTxPower::P7dBm => 0x07,
+            NrfTxPower::P8dBm => 0x08,
+        }
+    }
+
+    /// Create an nRF TX power value from a raw RADIO.TXPOWER register value.
+    pub fn from_register_value(value: u8) -> Result<Self> {
+        match value {
+            0xD8 => Ok(NrfTxPower::Pm40dBm),
+            0xEC => Ok(NrfTxPower::Pm20dBm),
+            0xF0 => Ok(NrfTxPower::Pm16dBm),
+            0xF4 => Ok(NrfTxPower::Pm12dBm),
+            0xF8 => Ok(NrfTxPower::Pm8dBm),
+            0xFC => Ok(NrfTxPower::Pm4dBm),
+            0x00 => Ok(NrfTxPower::P0dBm),
+            0x02 => Ok(NrfTxPower::P2dBm),
+            0x03 => Ok(NrfTxPower::P3dBm),
+            0x04 => Ok(NrfTxPower::P4dBm),
+            0x05 => Ok(NrfTxPower::P5dBm),
+            0x06 => Ok(NrfTxPower::P6dBm),
+            0x07 => Ok(NrfTxPower::P7dBm),
+            0x08 => Ok(NrfTxPower::P8dBm),
+            _ => Err(Error::UsbProtocolError(format!(
+                "unknown nRF TXPOWER register value 0x{value:02x}"
+            ))),
+        }
+    }
+}
+
+/// Firmware-applied radio TEST state.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct TestState {
+    /// Current TEST mode.
+    pub mode: TestMode,
+    /// Current firmware-applied radio channel.
+    pub channel: Channel,
+    /// Current firmware-applied nRF52840 RADIO.TXPOWER value.
+    pub nrf_tx_power: NrfTxPower,
+    /// Current firmware-applied nRF21540 PA TX gain.
+    pub pa_power: u8,
+}
+
+impl TestState {
+    /// Parse a TEST state report returned by the firmware.
+    pub fn from_firmware_bytes(bytes: [u8; 4]) -> Result<Self> {
+        if bytes[3] > 31 {
+            return Err(Error::UsbProtocolError(format!(
+                "invalid TEST PA power value {}",
+                bytes[3]
+            )));
+        }
+
+        let channel = Channel::from_number(bytes[1]).map_err(|_| {
+            Error::UsbProtocolError(format!("invalid TEST channel value {}", bytes[1]))
+        })?;
+
+        Ok(TestState {
+            mode: TestMode::try_from(bytes[0])?,
+            channel,
+            nrf_tx_power: NrfTxPower::from_register_value(bytes[2])?,
+            pa_power: bytes[3],
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "serde_support")]
@@ -1258,5 +1572,133 @@ mod tests {
 
         assert!(matches!(drained, Err(super::Error::UsbProtocolError(_))));
         assert_eq!(reads, super::USB_RX_DRAIN_MAX_PACKETS);
+    }
+
+    #[test]
+    fn maps_test_command_stall_to_unsupported_firmware_error() {
+        let error = super::map_test_command_usb_error(rusb::Error::Pipe);
+
+        assert!(matches!(error, super::Error::TestCommandsNotSupported));
+        assert_eq!(
+            error.to_string(),
+            "This version of the Crazyradio firmware does not support TEST commands"
+        );
+    }
+
+    #[test]
+    fn maps_other_test_command_usb_errors_to_usb_error() {
+        let error = super::map_test_command_usb_error(rusb::Error::Timeout);
+
+        assert!(matches!(
+            error,
+            super::Error::UsbError(rusb::Error::Timeout)
+        ));
+    }
+
+    #[test]
+    fn reset_test_mode_idle_ignores_unsupported_firmware_stall() {
+        let result = super::map_reset_test_mode_idle_result(Err(rusb::Error::Pipe));
+
+        assert!(matches!(result, Ok(())));
+    }
+
+    #[test]
+    fn reset_test_mode_idle_propagates_other_usb_errors() {
+        let result = super::map_reset_test_mode_idle_result(Err(rusb::Error::Timeout));
+
+        assert!(matches!(
+            result,
+            Err(super::Error::UsbError(rusb::Error::Timeout))
+        ));
+    }
+
+    #[test]
+    fn test_mode_values_match_firmware_protocol() {
+        assert_eq!(super::TestMode::Idle as u16, 0);
+        assert_eq!(super::TestMode::ContinuousCarrier as u16, 1);
+        assert_eq!(super::TestMode::ContinuousModulatedCarrier1Mbps as u16, 2);
+        assert_eq!(super::TestMode::ContinuousModulatedCarrier2Mbps as u16, 3);
+
+        assert_eq!(super::TestMode::try_from(0).unwrap(), super::TestMode::Idle);
+        assert_eq!(
+            super::TestMode::try_from(3).unwrap(),
+            super::TestMode::ContinuousModulatedCarrier2Mbps
+        );
+        assert!(matches!(
+            super::TestMode::try_from(4),
+            Err(super::Error::UsbProtocolError(_))
+        ));
+    }
+
+    #[test]
+    fn nrf_tx_power_values_match_firmware_protocol() {
+        assert_eq!(super::NrfTxPower::Pm40dBm.register_value(), 0xD8);
+        assert_eq!(super::NrfTxPower::Pm20dBm.register_value(), 0xEC);
+        assert_eq!(super::NrfTxPower::Pm16dBm.register_value(), 0xF0);
+        assert_eq!(super::NrfTxPower::Pm12dBm.register_value(), 0xF4);
+        assert_eq!(super::NrfTxPower::Pm8dBm.register_value(), 0xF8);
+        assert_eq!(super::NrfTxPower::Pm4dBm.register_value(), 0xFC);
+        assert_eq!(super::NrfTxPower::P0dBm.register_value(), 0x00);
+        assert_eq!(super::NrfTxPower::P2dBm.register_value(), 0x02);
+        assert_eq!(super::NrfTxPower::P8dBm.register_value(), 0x08);
+
+        assert_eq!(
+            super::NrfTxPower::from_register_value(0xD8).unwrap(),
+            super::NrfTxPower::Pm40dBm
+        );
+        assert_eq!(
+            super::NrfTxPower::from_register_value(0x08).unwrap(),
+            super::NrfTxPower::P8dBm
+        );
+        assert!(matches!(
+            super::NrfTxPower::from_register_value(0x09),
+            Err(super::Error::UsbProtocolError(_))
+        ));
+    }
+
+    #[test]
+    fn parses_test_state_report_from_firmware() {
+        let state = super::TestState::from_firmware_bytes([3, 42, 0x06, 31]).unwrap();
+
+        assert_eq!(state.mode, super::TestMode::ContinuousModulatedCarrier2Mbps);
+        assert_eq!(state.channel, super::Channel::from_number(42).unwrap());
+        assert_eq!(state.nrf_tx_power, super::NrfTxPower::P6dBm);
+        assert_eq!(state.pa_power, 31);
+    }
+
+    #[test]
+    fn rejects_invalid_test_state_report_from_firmware() {
+        assert!(matches!(
+            super::TestState::from_firmware_bytes([4, 42, 0x06, 31]),
+            Err(super::Error::UsbProtocolError(_))
+        ));
+        assert!(matches!(
+            super::TestState::from_firmware_bytes([3, 126, 0x06, 31]),
+            Err(super::Error::UsbProtocolError(_))
+        ));
+        assert!(matches!(
+            super::TestState::from_firmware_bytes([3, 42, 0x09, 31]),
+            Err(super::Error::UsbProtocolError(_))
+        ));
+        assert!(matches!(
+            super::TestState::from_firmware_bytes([3, 42, 0x06, 32]),
+            Err(super::Error::UsbProtocolError(_))
+        ));
+    }
+
+    #[test]
+    fn formats_usb_bcd_device_version_as_a_string() {
+        assert_eq!(
+            super::format_device_version(rusb::Version::from_bcd(0x0530)),
+            "5.30"
+        );
+        assert_eq!(
+            super::format_device_version(rusb::Version::from_bcd(0x0503)),
+            "5.03"
+        );
+        assert_eq!(
+            super::format_device_version(rusb::Version::from_bcd(0x1234)),
+            "12.34"
+        );
     }
 }
