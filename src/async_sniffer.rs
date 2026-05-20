@@ -5,7 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{Crazyradio, Error, Result, UsbCommand};
+use crate::{
+    Crazyradio, Error, Result, UsbCommand, USB_BULK_OUT_ENDPOINT, USB_CONTROL_VENDOR_IN,
+    USB_TIMEOUT,
+};
 
 /// A packet received in async sniffer mode, with owned payload.
 #[derive(Debug, Clone)]
@@ -126,7 +129,7 @@ impl SnifferSender {
             );
 
             let result = handle
-                .write_bulk(0x01, &buf, Duration::from_secs(1))
+                .write_bulk(USB_BULK_OUT_ENDPOINT, &buf, USB_TIMEOUT)
                 .map(|_| ())
                 .map_err(Error::from);
             let _ = tx.send(result);
@@ -148,12 +151,12 @@ impl SnifferSender {
             let mut buf = [0u8; 4];
             let result = handle
                 .read_control(
-                    0xC0,
+                    USB_CONTROL_VENDOR_IN,
                     UsbCommand::GetSnifferDropCount as u8,
                     0,
                     0,
                     &mut buf,
-                    Duration::from_secs(1),
+                    USB_TIMEOUT,
                 )
                 .map(|_| u32::from_le_bytes(buf))
                 .map_err(Error::from);
@@ -171,7 +174,7 @@ fn sniffer_rx_loop(
     close_rx: flume::Receiver<()>,
     radio_tx: flume::Sender<Result<Crazyradio>>,
 ) {
-    const RX_TIMEOUT: Duration = Duration::from_secs(1);
+    const RX_TIMEOUT: Duration = USB_TIMEOUT;
 
     loop {
         // Check if we should stop (close signal or packet channel disconnected)
